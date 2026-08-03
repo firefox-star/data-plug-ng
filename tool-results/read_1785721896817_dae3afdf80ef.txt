@@ -1,0 +1,752 @@
+     1→     1→'use client';
+     2→     2→import { useState, useEffect, useRef } from 'react';
+     3→     3→import { motion, AnimatePresence } from 'framer-motion';
+     4→     4→import { Sun, Moon, LogIn, UserPlus, Bell, LogOut, Wallet, Upload, Loader2, Check, Copy, X, Gift, Users, Share2 } from 'lucide-react';
+     5→     5→import { Button } from '@/components/ui/button';
+     6→     6→import { Input } from '@/components/ui/input';
+     7→     7→import { Label } from '@/components/ui/label';
+     8→     8→import { Badge } from '@/components/ui/badge';
+     9→     9→import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+    10→    10→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+    11→    11→import { NetworkIcon } from '@/components/network-icon';
+    12→    12→import { AiChat } from '@/components/ai-chat';
+    13→    13→import { AdminPanel } from '@/components/admin-panel';
+    14→    14→import { cn } from '@/lib/utils';
+    15→    15→import { useTheme } from 'next-themes';
+    16→    16→import { toast } from 'sonner';
+    17→    17→
+    18→    18→interface Network { id: string; name: string; slug: string; color: string; icon: string; plans: Plan[]; }
+    19→    19→interface Plan { id: string; networkId: string; name: string; size: number; price: number; validity: string; active: boolean; sortOrder: number; }
+    20→    20→interface SiteSettings { site_name: string; site_tagline: string; bank_name: string; account_number: string; account_name: string; whatsapp_number: string; support_email: string; payment_instructions: string; }
+    21→    21→interface UserOrder { id: string; phone: string; amount: number; status: string; notes: string; createdAt: string; network?: { name: string; slug: string; }; plan?: { name: string; size: number; validity: string; }; }
+    22→    22→interface UserDeposit { id: string; amount: number; status: string; createdAt: string; paymentProof: string; }
+    23→    23→interface UserNotification { id: string; title: string; message: string; read: boolean; createdAt: string; }
+    24→    24→
+    25→    25→const statusColors: Record<string, string> = {
+    26→    26→  pending: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    27→    27→  approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    28→    28→  rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    29→    29→  processing: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    30→    30→  delivered: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    31→    31→  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    32→    32→  active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    33→    33→  inactive: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    34→    34→};
+    35→    35→
+    36→    36→function formatPrice(n: number) { return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`; }
+    37→    37→function formatDate(d: string) { return new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    38→    38→
+    39→    39→async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 15000) {
+    40→    40→  const controller = new AbortController();
+    41→    41→  const id = setTimeout(() => controller.abort(), timeout);
+    42→    42→  try {
+    43→    43→    const res = await fetch(url, { ...options, signal: controller.signal });
+    44→    44→    clearTimeout(id);
+    45→    45→    return res;
+    46→    46→  } catch { clearTimeout(id); throw new Error('Request timed out'); }
+    47→    47→}
+    48→    48→
+    49→    49→export default function HomePage() {
+    50→    50→  const { theme, setTheme } = useTheme();
+    51→    51→  const [mounted, setMounted] = useState(false);
+    52→    52→  const [userId, setUserId] = useState('');
+    53→    53→  const [userName, setUserName] = useState('');
+    54→    54→  const [userPhone, setUserPhone] = useState('');
+    55→    55→  const [userBalance, setUserBalance] = useState(0);
+    56→    56→  const isAuthenticated = !!userId;
+    57→    57→
+    58→    58→  const [activeTab, setActiveTab] = useState('buy');
+    59→    59→  const [showLogin, setShowLogin] = useState(false);
+    60→    60→  const [showRegister, setShowRegister] = useState(false);
+    61→    61→  const [showNotifications, setShowNotifications] = useState(false);
+    62→    62→  const [notifRef, setNotifRef] = useState<HTMLDivElement | null>(null);
+    63→    63→
+    64→    64→  const [networks, setNetworks] = useState<Network[]>([]);
+    65→    65→  const [settings, setSettings] = useState<SiteSettings>({ site_name: 'DataPlug.ng', site_tagline: '', bank_name: '', account_number: '', account_name: '', whatsapp_number: '', support_email: '', payment_instructions: '' });
+    66→    66→  const [orders, setOrders] = useState<UserOrder[]>([]);
+    67→    67→  const [deposits, setDeposits] = useState<UserDeposit[]>([]);
+    68→    68→  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+    69→    69→
+    70→    70→  const [selectedNetwork, setSelectedNetwork] = useState('');
+    71→    71→  const [buyingPlan, setBuyingPlan] = useState<string | null>(null);
+    72→    72→
+    73→    73→  const [loginPhone, setLoginPhone] = useState('');
+    74→    74→  const [loginPassword, setLoginPassword] = useState('');
+    75→    75→  const [loginLoading, setLoginLoading] = useState(false);
+    76→    76→
+    77→    77→  const [regName, setRegName] = useState('');
+    78→    78→  const [regPhone, setRegPhone] = useState('');
+    79→    79→  const [regPassword, setRegPassword] = useState('');
+    80→    80→  const [regConfirm, setRegConfirm] = useState('');
+    81→    81→  const [regLoading, setRegLoading] = useState(false);
+    82→    82→
+    83→    83→  const [fundAmount, setFundAmount] = useState('');
+    84→    84→  const [fundProofFile, setFundProofFile] = useState<File | null>(null);
+    85→    85→  const [fundProofPath, setFundProofPath] = useState('');
+    86→    86→  const [fundLoading, setFundLoading] = useState(false);
+    87→    87→
+    88→    88→  const [copied, setCopied] = useState(false);
+    89→    89→
+    90→    90→  // Referral
+    91→    91→  const [whatsappShareCount, setWhatsappShareCount] = useState(0);
+    92→    92→  const [referralCompleted, setReferralCompleted] = useState(false);
+    93→    93→  const [requiredShares, setRequiredShares] = useState(3);
+    94→    94→  const [rewardAmount, setRewardAmount] = useState(3000);
+    95→    95→  const [totalRewardEarned, setTotalRewardEarned] = useState(0);
+    96→    96→  const [shareLoading, setShareLoading] = useState(false);
+    97→    97→  // Referral code from URL
+    98→    98→  const [urlRefCode, setUrlRefCode] = useState('');
+    99→    99→
+   100→   100→  // Admin
+   101→   101→  const [showAdmin, setShowAdmin] = useState(false);
+   102→   102→  const [adminPassword, setAdminPassword] = useState('');
+   103→   103→  const [adminTapCount, setAdminTapCount] = useState(0);
+   104→   104→  const [adminAuthenticated, setAdminAuthenticated] = useState(false);
+   105→   105→  const [showAdminLogin, setShowAdminLogin] = useState(false);
+   106→   106→  const [adminPwdInput, setAdminPwdInput] = useState('');
+   107→   107→  const [adminPwdLoading, setAdminPwdLoading] = useState(false);
+   108→   108→  const fileInputRef = useRef<HTMLInputElement>(null);
+   109→   109→
+   110→   110→  useEffect(() => { setMounted(true); }, []);
+   111→   111→
+   112→   112→  // Check for referral code in URL
+   113→   113→  useEffect(() => {
+   114→   114→    if (typeof window !== 'undefined') {
+   115→   115→      const params = new URLSearchParams(window.location.search);
+   116→   116→      const ref = params.get('ref');
+   117→   117→      if (ref) setUrlRefCode(ref);
+   118→   118→    }
+   119→   119→  }, []);
+   120→   120→
+   121→   121→  // Load from localStorage
+   122→   122→  useEffect(() => {
+   123→   123→    const uid = localStorage.getItem('dataplug_userId');
+   124→   124→    if (uid) { setUserId(uid); setUserName(localStorage.getItem('dataplug_userName') || ''); setUserPhone(localStorage.getItem('dataplug_userPhone') || ''); setBalance(localStorage.getItem('dataplug_userBalance') || '0'); }
+   125→   125→  }, []);
+   126→   126→
+   127→   127→  function setBalance(val: string | number) { const n = typeof val === 'string' ? parseFloat(val) || 0 : val; setUserBalance(n); }
+   128→   128→
+   129→   129→  // Validate session + refresh balance from server
+   130→   130→  useEffect(() => {
+   131→   131→    if (!userId) return;
+   132→   132→    (async () => {
+   133→   133→      try {
+   134→   134→        const res = await fetchWithTimeout('/api/auth/session', { headers: { 'x-user-id': userId } });
+   135→   135→        if (!res.ok) { localStorage.clear(); setUserId(''); setUserName(''); setUserPhone(''); setUserBalance(0); return; }
+   136→   136→        const data = await res.json();
+   137→   137→        if (data.balance !== undefined) {
+   138→   138→          setUserBalance(data.balance);
+   139→   139→          localStorage.setItem('dataplug_userBalance', String(data.balance));
+   140→   140→        }
+   141→   141→      } catch { /* ignore */ }
+   142→   142→    })();
+   143→   143→  }, [userId]);
+   144→   144→
+   145→   145→  // Fetch public data
+   146→   146→  useEffect(() => {
+   147→   147→    fetchWithTimeout('/api/settings').then(r => r.json()).then(d => setSettings(d)).catch(() => {});
+   148→   148→    fetchWithTimeout('/api/plans').then(r => r.json()).then(d => { setNetworks(d.networks || []); if (d.networks?.[0]) setSelectedNetwork(d.networks[0].slug); }).catch(() => {});
+   149→   149→  }, []);
+   150→   150→
+   151→   151→  // Fetch user data + refresh balance from server
+   152→   152→  useEffect(() => {
+   153→   153→    if (!isAuthenticated) return;
+   154→   154→    fetchWithTimeout('/api/user/orders', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => setOrders(d.orders || [])).catch(() => {});
+   155→   155→    fetchWithTimeout('/api/user/deposits', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => setDeposits(d.deposits || [])).catch(() => {});
+   156→   156→    fetchWithTimeout('/api/user/notifications', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => setNotifications(d.notifications || [])).catch(() => {});
+   157→   157→    fetchWithTimeout('/api/user/referral', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => {
+   158→   158→      setWhatsappShareCount(d.whatsappShareCount || 0);
+   159→   159→      setReferralCompleted(d.referralCompleted || false);
+   160→   160→      setRequiredShares(d.requiredShares || 3);
+   161→   161→      setRewardAmount(d.rewardAmount || 3000);
+   162→   162→      setTotalRewardEarned(d.totalRewardEarned || 0);
+   163→   163→    }).catch(() => {});
+   164→   164→    // Always refresh balance from server when data loads
+   165→   165→    fetchWithTimeout('/api/auth/session', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => {
+   166→   166→      if (d.balance !== undefined) { setUserBalance(d.balance); localStorage.setItem('dataplug_userBalance', String(d.balance)); }
+   167→   167→    }).catch(() => {});
+   168→   168→  }, [isAuthenticated, userId]);
+   169→   169→
+   170→   170→  // Close notifications on outside click
+   171→   171→  useEffect(() => {
+   172→   172→    function handleClick(e: MouseEvent) { if (notifRef && !notifRef.contains(e.target as Node)) setShowNotifications(false); }
+   173→   173→    document.addEventListener('mousedown', handleClick);
+   174→   174→    return () => document.removeEventListener('mousedown', handleClick);
+   175→   175→  }, [notifRef]);
+   176→   176→
+   177→   177→  // Login
+   178→   178→  async function handleLogin() {
+   179→   179→    if (!loginPhone || !loginPassword) return;
+   180→   180→    setLoginLoading(true);
+   181→   181→    try {
+   182→   182→      const res = await fetchWithTimeout('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: loginPhone, password: loginPassword }) });
+   183→   183→      const data = await res.json();
+   184→   184→      if (!res.ok) { toast.error(data.error || 'Login failed'); return; }
+   185→   185→      localStorage.setItem('dataplug_userId', data.userId); localStorage.setItem('dataplug_userName', data.name); localStorage.setItem('dataplug_userPhone', loginPhone); localStorage.setItem('dataplug_userBalance', String(data.balance));
+   186→   186→      setUserId(data.userId); setUserName(data.name); setUserPhone(loginPhone); setUserBalance(data.balance); setShowLogin(false); toast.success('Welcome back!');
+   187→   187→    } catch { toast.error('Network error'); } finally { setLoginLoading(false); }
+   188→   188→  }
+   189→   189→
+   190→   190→  // Register
+   191→   191→  async function handleRegister() {
+   192→   192→    if (!regName || regName.trim().length < 2) { toast.error('Name must be at least 2 characters'); return; }
+   193→   193→    if (!regPhone || regPhone.trim().length < 10) { toast.error('Phone number must be at least 10 digits'); return; }
+   194→   194→    if (!regPassword || regPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+   195→   195→    if (regPassword !== regConfirm) { toast.error('Passwords do not match'); return; }
+   196→   196→    setRegLoading(true);
+   197→   197→    try {
+   198→   198→      const res = await fetchWithTimeout('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: regName, phone: regPhone, password: regPassword, referralCode: urlRefCode || undefined }) });
+   199→   199→      const data = await res.json();
+   200→   200→      if (!res.ok) { toast.error(data.error || 'Registration failed'); return; }
+   201→   201→      localStorage.setItem('dataplug_userId', data.userId); localStorage.setItem('dataplug_userName', regName); localStorage.setItem('dataplug_userPhone', regPhone); localStorage.setItem('dataplug_userBalance', '0');
+   202→   202→      setUserId(data.userId); setUserName(regName); setUserPhone(regPhone); setUserBalance(0); setShowRegister(false); toast.success('Account created!');
+   203→   203→    } catch { toast.error('Network error'); } finally { setRegLoading(false); }
+   204→   204→  }
+   205→   205→
+   206→   206→  // Logout
+   207→   207→  function handleLogout() { localStorage.removeItem('dataplug_userId'); localStorage.removeItem('dataplug_userName'); localStorage.removeItem('dataplug_userPhone'); localStorage.removeItem('dataplug_userBalance'); setUserId(''); setUserName(''); setUserPhone(''); setUserBalance(0); setShowAdmin(false); setAdminAuthenticated(false); }
+   208→   208→
+   209→   209→  // Buy data
+   210→   210→  async function handleBuy(plan: Plan) {
+   211→   211→    if (userBalance < plan.price) { toast.error('Insufficient balance'); return; }
+   212→   212→    setBuyingPlan(plan.id);
+   213→   213→    try {
+   214→   214→      const res = await fetchWithTimeout('/api/user/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-id': userId }, body: JSON.stringify({ phone: userPhone, networkId: plan.networkId, planId: plan.id, amount: plan.price }) });
+   215→   215→      const data = await res.json();
+   216→   216→      if (!res.ok) { toast.error(data.error || 'Order failed'); return; }
+   217→   217→      const newBal = userBalance - plan.price; setUserBalance(newBal); localStorage.setItem('dataplug_userBalance', String(newBal));
+   218→   218→      fetchWithTimeout('/api/user/orders', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => setOrders(d.orders || []));
+   219→   219→      toast.success(`${plan.name} data order placed!`);
+   220→   220→    } catch { toast.error('Network error'); } finally { setBuyingPlan(null); }
+   221→   221→  }
+   222→   222→
+   223→   223→  // Fund wallet
+   224→   224→  async function handleFund() {
+   225→   225→    const amount = parseFloat(fundAmount);
+   226→   226→    if (!amount || amount <= 0 || !fundProofPath) return;
+   227→   227→    setFundLoading(true);
+   228→   228→    try {
+   229→   229→      const res = await fetchWithTimeout('/api/user/deposits', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-id': userId }, body: JSON.stringify({ amount, paymentProof: fundProofPath }) });
+   230→   230→      const data = await res.json();
+   231→   231→      if (!res.ok) { toast.error(data.error || 'Deposit failed'); return; }
+   232→   232→      setFundAmount(''); setFundProofFile(null); setFundProofPath('');
+   233→   233→      if (fileInputRef.current) fileInputRef.current.value = '';
+   234→   234→      fetchWithTimeout('/api/user/deposits', { headers: { 'x-user-id': userId } }).then(r => r.json()).then(d => setDeposits(d.deposits || []));
+   235→   235→      toast.success('Deposit request submitted! Awaiting confirmation.');
+   236→   236→    } catch { toast.error('Network error. Please try again.'); } finally { setFundLoading(false); }
+   237→   237→  }
+   238→   238→
+   239→   239→  // Upload proof
+   240→   240→  async function handleProofUpload(e: React.ChangeEvent<HTMLInputElement>) {
+   241→   241→    const file = e.target.files?.[0]; if (!file) return;
+   242→   242→    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { toast.error('Only JPG, PNG or WebP allowed'); return; }
+   243→   243→    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
+   244→   244→    setFundProofFile(file);
+   245→   245→    try {
+   246→   246→      const fd = new FormData(); fd.append('file', file);
+   247→   247→      const res = await fetchWithTimeout('/api/upload', { method: 'POST', body: fd }, 60000);
+   248→   248→      const data = await res.json();
+   249→   249→      if (!res.ok) { toast.error(data.error || 'Upload failed'); setFundProofFile(null); return; }
+   250→   250→      setFundProofPath(data.path); toast.success('Proof uploaded');
+   251→   251→    } catch { toast.error('Upload timed out'); setFundProofFile(null); }
+   252→   252→  }
+   253→   253→
+   254→   254→  // Copy account number
+   255→   255→  function copyAccountNumber() { navigator.clipboard.writeText(settings.account_number); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+   256→   256→
+   257→   257→  // Admin triple-tap
+   258→   258→  function handleAdminTap() {
+   259→   259→    const next = adminTapCount + 1;
+   260→   260→    setAdminTapCount(next);
+   261→   261→    if (next >= 3) { setAdminTapCount(0); setShowAdminLogin(true); }
+   262→   262→    setTimeout(() => setAdminTapCount(0), 1000);
+   263→   263→  }
+   264→   264→
+   265→   265→  // Admin login
+   266→   266→  async function handleAdminLogin() {
+   267→   267→    if (!adminPwdInput) return;
+   268→   268→    setAdminPwdLoading(true);
+   269→   269→    try {
+   270→   270→      const res = await fetchWithTimeout('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPwdInput } });
+   271→   271→      if (!res.ok) { toast.error('Invalid admin password'); return; }
+   272→   272→      setAdminPassword(adminPwdInput); setAdminAuthenticated(true); setShowAdminLogin(false); setShowAdmin(true); toast.success('Admin access granted');
+   273→   273→    } catch { toast.error('Network error'); } finally { setAdminPwdLoading(false); }
+   274→   274→  }
+   275→   275→
+   276→   276→  const unreadCount = notifications.filter(n => !n.read).length;
+   277→   277→  const selNet = networks.find(n => n.slug === selectedNetwork);
+   278→   278→
+   279→   279→  // Get 2 cheapest plans per network for landing page
+   280→   280→  const landingPlans = networks.flatMap(net => [...net.plans].sort((a, b) => a.price - b.price).slice(0, 2).map(p => ({ ...p, networkName: net.name, networkSlug: net.slug, networkColor: net.color })));
+   281→   281→
+   282→   282→  if (!mounted) return null;
+   283→   283→
+   284→   284→  return (
+   285→   285→    <div className="min-h-screen flex flex-col bg-background">
+   286→   286→      {/* NAVBAR */}
+   287→   287→      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+   288→   288→        <div className="max-w-6xl mx-auto flex h-14 items-center justify-between px-4">
+   289→   289→          <span className="font-bold text-lg text-emerald-600">{settings.site_name}</span>
+   290→   290→          <div className="flex items-center gap-2">
+   291→   291→            {mounted && <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>}
+   292→   292→            {isAuthenticated ? (
+   293→   293→              <>
+   294→   294→                <div ref={setNotifRef} className="relative">
+   295→   295→                  <Button variant="ghost" size="icon" className="h-9 w-9 relative" onClick={() => setShowNotifications(!showNotifications)}>
+   296→   296→                    <Bell className="h-4 w-4" />
+   297→   297→                    {unreadCount > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center">{unreadCount}</span>}
+   298→   298→                  </Button>
+   299→   299→                  <AnimatePresence>{showNotifications && (
+   300→   300→                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute right-0 top-12 w-80 max-h-96 overflow-y-auto rounded-xl border bg-background shadow-lg p-4 z-50">
+   301→   301→                      <h3 className="font-semibold text-sm mb-3">Notifications</h3>
+   302→   302→                      {notifications.length === 0 && <p className="text-sm text-muted-foreground">No notifications yet</p>}
+   303→   303→                      {notifications.map(n => (
+   304→   304→                        <div key={n.id} className={cn('p-2 rounded-lg mb-2 text-sm cursor-pointer hover:bg-muted/50', !n.read && 'bg-emerald-50 dark:bg-emerald-900/20')} onClick={() => { fetchWithTimeout('/api/user/notifications', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-user-id': userId }, body: JSON.stringify({ notificationId: n.id }) }).catch(() => {}); setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x)); }}>
+   305→   305→                          <p className="font-medium">{n.title}</p><p className="text-muted-foreground text-xs mt-0.5">{n.message}</p><p className="text-xs text-muted-foreground mt-1">{formatDate(n.createdAt)}</p>
+   306→   306→                        </div>
+   307→   307→                      ))}
+   308→   308→                    </motion.div>
+   309→   309→                  )}</AnimatePresence>
+   310→   310→                </div>
+   311→   311→                <span className="text-sm font-medium hidden sm:inline">{formatPrice(userBalance)}</span>
+   312→   312→                <span className="text-sm text-muted-foreground hidden sm:inline">Hi, {userName}</span>
+   313→   313→                <Button variant="ghost" size="sm" className="h-8 text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleLogout}><LogOut className="h-4 w-4 mr-1" />Logout</Button>
+   314→   314→              </>
+   315→   315→            ) : (
+   316→   316→              <>
+   317→   317→                <Button variant="outline" size="sm" onClick={() => setShowLogin(true)}><LogIn className="h-4 w-4 mr-1" />Login</Button>
+   318→   318→                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setShowRegister(true)}><UserPlus className="h-4 w-4 mr-1" />Register</Button>
+   319→   319→              </>
+   320→   320→            )}
+   321→   321→          </div>
+   322→   322→        </div>
+   323→   323→      </header>
+   324→   324→
+   325→   325→      {/* MAIN CONTENT */}
+   326→   326→      <main className="flex-1">
+   327→   327→        {!isAuthenticated ? (
+   328→   328→          /* ===== LANDING PAGE ===== */
+   329→   329→          <>
+   330→   330→            {/* Hero */}
+   331→   331→            <section className="relative overflow-hidden">
+   332→   332→              <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-emerald-50/50 to-transparent dark:from-emerald-950/30 dark:to-transparent" />
+   333→   333→              <div className="relative max-w-6xl mx-auto px-4 py-20 sm:py-28 text-center">
+   334→   334→                <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-sm text-emerald-600 font-medium mb-4">Trusted by thousands of Nigerians</motion.p>
+   335→   335→                <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6">Buy Data at the<br /><span className="text-emerald-600">Best Prices</span></motion.h1>
+   336→   336→                <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">Fund your wallet, choose your plan, get instant delivery. It&apos;s that simple.</motion.p>
+   337→   337→                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="flex gap-3 justify-center">
+   338→   338→                  <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 px-8" onClick={() => setShowRegister(true)}>Get Started</Button>
+   339→   339→                  <Button size="lg" variant="outline" onClick={() => setShowLogin(true)}>Login</Button>
+   340→   340→                </motion.div>
+   341→   341→              </div>
+   342→   342→            </section>
+   343→   343→
+   344→   344→            {/* How It Works */}
+   345→   345→            <section className="max-w-6xl mx-auto px-4 py-16">
+   346→   346→              <h2 className="text-2xl sm:text-3xl font-bold text-center mb-12">How It Works</h2>
+   347→   347→              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+   348→   348→                {[
+   349→   349→                  { step: 'STEP 1', title: 'Create Account', desc: 'Sign up in seconds with just your phone number and a password.', icon: UserPlus },
+   350→   350→                  { step: 'STEP 2', title: 'Fund Your Wallet', desc: 'Transfer to our account and get credited once confirmed.', icon: Wallet },
+   351→   351→                  { step: 'STEP 3', title: 'Buy Data', desc: 'Choose from MTN, Airtel, Glo & 9Mobile. Data delivered in minutes!', icon: Upload },
+   352→   352→                ].map((item, i) => (
+   353→   353→                  <motion.div
+   354→   354→                    key={i}
+   355→   355→                    initial={{ opacity: 0, y: 30 }}
+   356→   356→                    animate={{ opacity: 1, y: 0 }}
+   357→   357→                    transition={{ delay: 0.2 + i * 0.15, duration: 0.5 }}
+   358→   358→                    className="text-center p-6 rounded-xl border bg-card/50"
+   359→   359→                  >
+   360→   360→                    <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-4">
+   361→   361→                      <item.icon className="h-7 w-7 text-emerald-600" />
+   362→   362→                    </div>
+   363→   363→                    <p className="text-xs font-bold text-emerald-600 mb-2">{item.step}</p>
+   364→   364→                    <h3 className="text-xl font-semibold mb-2">{item.title}</h3>
+   365→   365→                    <p className="text-muted-foreground">{item.desc}</p>
+   366→   366→                  </motion.div>
+   367→   367→                ))}
+   368→   368→              </div>
+   369→   369→            </section>
+   370→   370→
+   371→   371→            {/* Plan Cards */}
+   372→   372→            <section className="max-w-6xl mx-auto px-4 py-16">
+   373→   373→              <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2">Affordable Data Plans</h2>
+   374→   374→              <p className="text-muted-foreground text-center mb-10">Starting from just ₦180. All networks available.</p>
+   375→   375→              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+   376→   376→                {landingPlans.map((plan, i) => (
+   377→   377→                  <motion.div
+   378→   378→                    key={plan.id || i}
+   379→   379→                    initial={{ opacity: 0, y: 20 }}
+   380→   380→                    animate={{ opacity: 1, y: 0 }}
+   381→   381→                    transition={{ delay: 0.3 + i * 0.06, duration: 0.4 }}
+   382→   382→                    className="rounded-xl border bg-card p-5 hover:shadow-lg transition-all text-center hover:-translate-y-1"
+   383→   383→                  >
+   384→   384→                    <NetworkIcon slug={plan.networkSlug} name={plan.networkName} size={56} className="mx-auto mb-3" />
+   385→   385→                    <p className="font-medium text-sm">{plan.networkName}</p>
+   386→   386→                    <p className="text-xl font-bold">{plan.name}</p>
+   387→   387→                    <p className="text-sm text-muted-foreground">{plan.validity}</p>
+   388→   388→                    <p className="text-xl font-bold text-emerald-600 mt-2">{formatPrice(plan.price)}</p>
+   389→   389→                  </motion.div>
+   390→   390→                ))}
+   391→   391→              </div>
+   392→   392→            </section>
+   393→   393→
+   394→   394→            {/* CTA */}
+   395→   395→            <section className="max-w-6xl mx-auto px-4 py-12 text-center">
+   396→   396→              <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 px-10" onClick={() => setShowRegister(true)}>Create a Free Account to Get Started</Button>
+   397→   397→            </section>
+   398→   398→          </>
+   399→   399→        ) : (
+   400→   400→          /* ===== USER DASHBOARD ===== */
+   401→   401→          <div className="max-w-6xl mx-auto px-4 py-6">
+   402→   402→            {/* Mobile balance */}
+   403→   403→            <div className="sm:hidden mb-4 text-center">
+   404→   404→              <p className="text-sm text-muted-foreground">Wallet Balance</p>
+   405→   405→              <p className="text-2xl font-bold text-emerald-600">{formatPrice(userBalance)}</p>
+   406→   406→            </div>
+   407→   407→
+   408→   408→            <Tabs value={activeTab} onValueChange={setActiveTab}>
+   409→   409→              <TabsList className="w-full mb-6">
+   410→   410→                <TabsTrigger value="buy" className="flex-1"><span className="hidden sm:inline">Buy </span>Data</TabsTrigger>
+   411→   411→                <TabsTrigger value="fund" className="flex-1"><span className="hidden sm:inline">Fund </span>Wallet</TabsTrigger>
+   412→   412→                <TabsTrigger value="orders" className="flex-1">My <span className="hidden sm:inline">Orders</span></TabsTrigger>
+   413→   413→                <TabsTrigger value="deposits" className="flex-1">My <span className="hidden sm:inline">Deposits</span></TabsTrigger>
+   414→   414→                <TabsTrigger value="refer" className="flex-1"><Gift className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Refer</span></TabsTrigger>
+   415→   415→              </TabsList>
+   416→   416→
+   417→   417→              {/* BUY DATA */}
+   418→   418→              <TabsContent value="buy">
+   419→   419→                <div className="flex items-center justify-between mb-6">
+   420→   420→                  <div className="hidden sm:block">
+   421→   421→                    <p className="text-sm text-muted-foreground">Wallet Balance</p>
+   422→   422→                    <p className="text-2xl font-bold text-emerald-600">{formatPrice(userBalance)}</p>
+   423→   423→                  </div>
+   424→   424→                  <Button variant="outline" className="sm:hidden" onClick={() => setActiveTab('fund')}>Fund Wallet</Button>
+   425→   425→                </div>
+   426→   426→                {/* Network selector */}
+   427→   427→                <div className="flex gap-3 mb-6 flex-wrap">
+   428→   428→                  {networks.map(net => (
+   429→   429→                    <Button key={net.id} variant={selectedNetwork === net.slug ? 'default' : 'outline'} className={cn('flex-1 min-w-[80px]', selectedNetwork === net.slug && 'ring-2 ring-emerald-500')} onClick={() => setSelectedNetwork(net.slug)}>
+   430→   430→                      <NetworkIcon slug={net.slug} name={net.name} size={32} className="mr-2" />
+   431→   431→                      {net.name}
+   432→   432→                    </Button>
+   433→   433→                  ))}
+   434→   434→                </div>
+   435→   435→                {/* Plans */}
+   436→   436→                {selNet && (
+   437→   437→                  <>
+   438→   438→                    <h3 className="text-lg font-semibold mb-4">{selNet.name} Data Plans</h3>
+   439→   439→                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+   440→   440→                      {selNet.plans.filter(p => p.active).sort((a, b) => a.sortOrder - b.sortOrder).map(plan => (
+   441→   441→                        <div key={plan.id} className="rounded-xl border bg-card p-4 hover:shadow-md transition-shadow">
+   442→   442→                          <p className="text-lg font-bold">{plan.name}</p>
+   443→   443→                          <p className="text-sm text-muted-foreground">{plan.validity}</p>
+   444→   444→                          <p className="text-xl font-bold text-emerald-600 my-2">{formatPrice(plan.price)}</p>
+   445→   445→                          <Button className={cn('w-full', userBalance >= plan.price ? 'bg-emerald-600 hover:bg-emerald-700' : '')} disabled={userBalance < plan.price || buyingPlan === plan.id} onClick={() => handleBuy(plan)}>
+   446→   446→                            {buyingPlan === plan.id ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+   447→   447→                            {userBalance >= plan.price ? 'Buy Now' : 'Insufficient Balance'}
+   448→   448→                          </Button>
+   449→   449→                        </div>
+   450→   450→                      ))}
+   451→   451→                    </div>
+   452→   452→                  </>
+   453→   453→                )}
+   454→   454→              </TabsContent>
+   455→   455→
+   456→   456→              {/* FUND WALLET */}
+   457→   457→              <TabsContent value="fund">
+   458→   458→                <h2 className="text-2xl font-bold mb-6">Fund Your Wallet</h2>
+   459→   459→                <div className="max-w-md space-y-6">
+   460→   460→                  <div><Label>Amount (₦)</Label><div className="flex items-center gap-2 mt-1"><span className="text-muted-foreground">₦</span><Input type="number" placeholder="Enter amount" value={fundAmount} onChange={e => setFundAmount(e.target.value)} /></div></div>
+   461→   461→                  <div className="rounded-xl border bg-muted/50 p-4 space-y-2">
+   462→   462→                    <h4 className="font-semibold text-sm">Bank Transfer Details</h4>
+   463→   463→                    <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Bank</span><span className="text-sm font-medium">{settings.bank_name}</span></div>
+   464→   464→                    <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Account Number</span><div className="flex items-center gap-2"><span className="text-sm font-medium">{settings.account_number}</span><Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyAccountNumber}>{copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}</Button></div></div>
+   465→   465→                    <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Account Name</span><span className="text-sm font-medium">{settings.account_name}</span></div>
+   466→   466→                  </div>
+   467→   467→                  <p className="text-sm text-muted-foreground">{settings.payment_instructions}</p>
+   468→   468→                  <div><Label>Payment Proof</Label>
+   469→   469→                    <Button variant="outline" className="w-full mt-1 h-auto py-4 flex-col gap-1" onClick={() => fileInputRef.current?.click()}>
+   470→   470→                      <Upload className="h-5 w-5 text-muted-foreground" />
+   471→   471→                      <span className="text-sm">{fundProofFile ? fundProofFile.name : 'Tap to upload payment proof'}</span>
+   472→   472→                      <span className="text-xs text-muted-foreground">JPG, PNG or WebP • Max 5MB</span>
+   473→   473→                    </Button>
+   474→   474→                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleProofUpload} />
+   475→   475→                  </div>
+   476→   476→                  <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={!fundAmount || !fundProofPath || fundLoading} onClick={handleFund}>
+   477→   477→                    {fundLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+   478→   478→                    Submit Deposit Request
+   479→   479→                  </Button>
+   480→   480→                </div>
+   481→   481→              </TabsContent>
+   482→   482→
+   483→   483→              {/* MY ORDERS */}
+   484→   484→              <TabsContent value="orders">
+   485→   485→                <h2 className="text-2xl font-bold mb-6">My Orders</h2>
+   486→   486→                {orders.length === 0 ? <p className="text-muted-foreground text-center py-12">No orders yet. Buy data to see your orders here.</p> : (
+   487→   487→                  <div className="space-y-3">
+   488→   488→                    {orders.map(order => (
+   489→   489→                      <div key={order.id} className="rounded-xl border bg-card p-4 flex flex-wrap items-center gap-4">
+   490→   490→                        {order.network && <NetworkIcon slug={order.network.slug} name={order.network.name} size={44} />}
+   491→   491→                        <div className="flex-1 min-w-[150px]">
+   492→   492→                          <p className="font-medium">{order.plan?.name || 'Unknown'} Data</p>
+   493→   493→                          <p className="text-sm text-muted-foreground">{order.phone} • {formatDate(order.createdAt)}</p>
+   494→   494→                        </div>
+   495→   495→                        <p className="font-bold text-emerald-600">{formatPrice(order.amount)}</p>
+   496→   496→                        <span className={cn('px-2.5 py-1 rounded-full text-xs font-medium capitalize', statusColors[order.status] || '')}>{order.status}</span>
+   497→   497→                      </div>
+   498→   498→                    ))}
+   499→   499→                  </div>
+   500→   500→                )}
+   501→   501→              </TabsContent>
+   502→   502→
+   503→   503→              {/* MY DEPOSITS */}
+   504→   504→              <TabsContent value="deposits">
+   505→   505→                <h2 className="text-2xl font-bold mb-6">My Deposits</h2>
+   506→   506→                {deposits.length === 0 ? <p className="text-muted-foreground text-center py-12">No deposits yet. Fund your wallet to get started.</p> : (
+   507→   507→                  <div className="space-y-3">
+   508→   508→                    {deposits.map(dep => (
+   509→   509→                      <div key={dep.id} className="rounded-xl border bg-card p-4 flex flex-wrap items-center gap-4">
+   510→   510→                        <div className="flex-1"><p className="font-bold text-emerald-600">{formatPrice(dep.amount)}</p><p className="text-sm text-muted-foreground">{formatDate(dep.createdAt)}</p></div>
+   511→   511→                        <span className={cn('px-2.5 py-1 rounded-full text-xs font-medium capitalize', statusColors[dep.status] || '')}>{dep.status}</span>
+   512→   512→                      </div>
+   513→   513→                    ))}
+   514→   514→                  </div>
+   515→   515→                )}
+   516→   516→              </TabsContent>
+   517→   517→
+   518→   518→              {/* REFERRAL */}
+   519→   519→              <TabsContent value="refer">
+   520→   520→                <div className="space-y-6">
+   521→   521→                  {/* Referral Hero Card */}
+   522→   522→                  <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-6">
+   523→   523→                    <div className="flex items-start justify-between flex-wrap gap-4">
+   524→   524→                      <div>
+   525→   525→                        <h2 className="text-2xl font-bold flex items-center gap-2"><Gift className="h-6 w-6" /> Share & Earn</h2>
+   526→   526→                        <p className="text-emerald-100 mt-2">Share DataPlug.ng with your friends on WhatsApp and earn <span className="font-bold text-yellow-300">₦3,000</span> wallet credit!</p>
+   527→   527→                      </div>
+   528→   528→                      {totalRewardEarned > 0 && (
+   529→   529→                        <div className="text-right">
+   530→   530→                          <p className="text-sm text-emerald-100">Total Earned</p>
+   531→   531→                          <p className="text-3xl font-bold">{formatPrice(totalRewardEarned)}</p>
+   532→   532→                        </div>
+   533→   533→                      )}
+   534→   534→                    </div>
+   535→   535→                  </div>
+   536→   536→
+   537→   537→                  {/* Progress Box — fills green in quarters */}
+   538→   538→                  <div className="rounded-xl border bg-card p-6">
+   539→   539→                    <div className="flex items-center justify-between mb-4">
+   540→   540→                      <span className="text-sm font-medium">Share Progress</span>
+   541→   541→                      <span className="text-sm text-muted-foreground">{whatsappShareCount} / {requiredShares} shares</span>
+   542→   542→                    </div>
+   543→   543→                    {/* Quarter boxes */}
+   544→   544→                    <div className="grid grid-cols-4 gap-3 mb-4">
+   545→   545→                      {[0, 1, 2, 3].map((i) => (
+   546→   546→                        <div
+   547→   547→                          key={i}
+   548→   548→                          className={cn(
+   549→   549→                            'h-20 sm:h-24 rounded-xl border-2 flex items-center justify-center transition-all duration-700 ease-out',
+   550→   550→                            i < whatsappShareCount
+   551→   551→                              ? 'bg-emerald-500 border-emerald-600 shadow-lg shadow-emerald-200 dark:shadow-emerald-900/50'
+   552→   552→                              : 'bg-muted/50 border-muted-300 dark:border-muted-700'
+   553→   553→                          )}
+   554→   554→                        >
+   555→   555→                          {i < whatsappShareCount ? (
+   556→   556→                            <Check className="h-8 w-8 text-white" />
+   557→   557→                          ) : (
+   558→   558→                            <span className="text-2xl font-bold text-muted-400">{(i + 1)}</span>
+   559→   559→                          )}
+   560→   560→                        </div>
+   561→   561→                      ))}
+   562→   562→                    </div>
+   563→   563→                    {/* Progress text */}
+   564→   564→                    {!referralCompleted ? (
+   565→   565→                      <p className="text-sm text-center text-muted-foreground">
+   566→   566→                        {whatsappShareCount === 0
+   567→   567→                          ? 'Tap the button below to share and start earning!'
+   568→   568→                          : whatsappShareCount < requiredShares
+   569→   569→                            ? `${requiredShares - whatsappShareCount} more share${requiredShares - whatsappShareCount === 1 ? '' : 's'} to earn ₦${rewardAmount.toLocaleString()}!`
+   570→   570→                            : ''
+   571→   571→                        }
+   572→   572→                      </p>
+   573→   573→                    ) : (
+   574→   574→                      <motion.div
+   575→   575→                        initial={{ scale: 0.8, opacity: 0 }}
+   576→   576→                        animate={{ scale: 1, opacity: 1 }}
+   577→   577→                        className="text-center"
+   578→   578→                      >
+   579→   579→                        <p className="text-lg font-bold text-emerald-600">Completed! ₦{rewardAmount.toLocaleString()} credited to your wallet!</p>
+   580→   580→                      </motion.div>
+   581→   581→                    )}
+   582→   582→                  </div>
+   583→   583→
+   584→   584→                  {/* Share Button — only show if not completed */}
+   585→   585→                  {!referralCompleted && (
+   586→   586→                    <motion.div
+   587→   587→                      initial={{ opacity: 0, y: 10 }}
+   588→   588→                      animate={{ opacity: 1, y: 0 }}
+   589→   589→                      className="rounded-xl border bg-card p-4"
+   590→   590→                    >
+   591→   591→                      <Button
+   592→   592→                        className="w-full h-14 text-lg bg-green-600 hover:bg-green-700 text-white font-bold py-4"
+   593→   593→                        disabled={shareLoading}
+   594→   594→                        onClick={async () => {
+   595→   595→                          setShareLoading(true);
+   596→   596→                          const shareLink = 'https://ln.run/gfciL';
+   597→   597→                          const shareText = `*DataPlug.ng* \u{1F4F1} \u{1F525}\n\n*Nigeria\u2019s Cheapest Data Platform!*\n\n\u{2728} MTN | Airtel | Glo | 9Mobile\n\u{1F4B0} Affordable data for everyone\n\u{1F381} Earn free data by sharing\n\n\u{1F517} Join now: ${shareLink}\n\n*_Get connected today_* \u{1F4F1}\u{2764}\u{FE0F}`;
+   598→   598→
+   599→   599→                          // Try Web Share API with image (works on mobile browsers)
+   600→   600→                          let shared = false;
+   601→   601→                          try {
+   602→   602→                            if (navigator.canShare) {
+   603→   603→                              const imgResponse = await fetch('/referral-banner.png');
+   604→   604→                              const imgBlob = await imgResponse.blob();
+   605→   605→                              const imgFile = new File([imgBlob], 'dataplug-share.png', { type: 'image/png' });
+   606→   606→
+   607→   607→                              if (navigator.canShare({ files: [imgFile] })) {
+   608→   608→                                await navigator.share({
+   609→   609→                                  title: 'DataPlug.ng - Cheapest Data in Nigeria',
+   610→   610→                                  text: shareText,
+   611→   611→                                  url: shareLink,
+   612→   612→                                  files: [imgFile],
+   613→   613→                                });
+   614→   614→                                shared = true;
+   615→   615→                              }
+   616→   616→                            }
+   617→   617→                          } catch (shareErr) {
+   618→   618→                            // User cancelled or API not supported — fallback to wa.me
+   619→   619→                            if ((shareErr as Error).name !== 'AbortError') {
+   620→   620→                              console.log('Web Share not available, using WhatsApp fallback');
+   621→   621→                            }
+   622→   622→                          }
+   623→   623→
+   624→   624→                          // Fallback: open WhatsApp with text only
+   625→   625→                          if (!shared) {
+   626→   626→                            window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+   627→   627→                          }
+   628→   628→
+   629→   629→                          // Record the share on server
+   630→   630→                          try {
+   631→   631→                            const res = await fetchWithTimeout('/api/user/referral', {
+   632→   632→                              method: 'POST',
+   633→   633→                              headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+   634→   634→                            });
+   635→   635→                            const data = await res.json();
+   636→   636→                            if (data.rewardGranted) {
+   637→   637→                              toast.success('Congratulations! ₦3,000 credited to your wallet!');
+   638→   638→                              setUserBalance(prev => prev + data.rewardAmount);
+   639→   639→                              localStorage.setItem('dataplug_userBalance', String(Number(localStorage.getItem('dataplug_userBalance') || '0') + data.rewardAmount));
+   640→   640→                            } else if (data.message) {
+   641→   641→                              toast.success(data.message);
+   642→   642→                            }
+   643→   643→                            setWhatsappShareCount(data.whatsappShareCount);
+   644→   644→                            setReferralCompleted(data.referralCompleted);
+   645→   645→                            setTotalRewardEarned((prev: number) => prev + (data.rewardGranted ? data.rewardAmount : 0));
+   646→   646→                          } catch {
+   647→   647→                            toast.error('Share recorded locally. Refresh to see progress.');
+   648→   648→                          }
+   649→   649→
+   650→   650→                          setShareLoading(false);
+   651→   651→                        }}
+   652→   652→                      >
+   653→   653→                        {shareLoading ? (
+   654→   654→                          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+   655→   655→                        ) : (
+   656→   656→                          <Share2 className="h-5 w-5 mr-2" />
+   657→   657→                        )}
+   658→   658→                        Share to WhatsApp
+   659→   659→                      </Button>
+   660→   660→                      <p className="text-xs text-muted-foreground text-center mt-2">Tap to share with friends and earn ₦3,000</p>
+   661→   661→                    </motion.div>
+   662→   662→                  )}
+   663→   663→
+   664→   664→                  {/* Completed State */}
+   665→   665→                  {referralCompleted && (
+   666→   666→                    <motion.div
+   667→   667→                      initial={{ scale: 0.9, opacity: 0 }}
+   668→   668→                      animate={{ scale: 1, opacity: 1 }}
+   669→   669→                      transition={{ type: 'spring', duration: 0.6 }}
+   670→   670→                      className="rounded-xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 p-6 text-center"
+   671→   671→                    >
+   672→   672→                      <div className="text-4xl mb-3">{'🎉'}</div>
+   673→   673→                      <h3 className="text-xl font-bold text-emerald-700 dark:text-emerald-400 mb-2">Reward Claimed!</h3>
+   674→   674→                      <p className="text-emerald-600 dark:text-emerald-300">You earned ₦3,000 wallet credit by sharing DataPlug.ng!</p>
+   675→   675→                      <p className="text-sm text-muted-foreground mt-2">Keep using DataPlug.ng for the cheapest data in Nigeria.</p>
+   676→   676→                    </motion.div>
+   677→   677→                  )}
+   678→   678→                </div>
+   679→   679→              </TabsContent>
+   680→   680→            </Tabs>
+   681→   681→          </div>
+   682→   682→        )}
+   683→   683→      </main>
+   684→   684→
+   685→   685→      {/* FOOTER */}
+   686→   686→      <footer className="mt-auto border-t bg-background">
+   687→   687→        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-muted-foreground space-y-2">
+   688→   688→          <p>{settings.site_name} — {settings.site_tagline || 'Your Reliable Plug for Cheap Data'}</p>
+   689→   689→          <div className="flex items-center justify-center gap-2 flex-wrap">
+   690→   690→            <a href={`https://wa.me/${settings.whatsapp_number?.replace(/\s+/g, '')}`} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-600">WhatsApp Support</a>
+   691→   691→            <span>|</span>
+   692→   692→            <span>{settings.support_email || 'support@dataplug.ng'}</span>
+   693→   693→          </div>
+   694→   694→          <p>© {new Date().getFullYear()} {settings.site_name}. All rights reserved.</p>
+   695→   695→          <button onClick={handleAdminTap} className="text-lg leading-none opacity-30 hover:opacity-60 transition-opacity">•</button>
+   696→   696→        </div>
+   697→   697→      </footer>
+   698→   698→
+   699→   699→      {/* LOGIN MODAL */}
+   700→   700→      <Dialog open={showLogin} onOpenChange={setShowLogin}>
+   701→   701→        <DialogContent className="sm:max-w-md">
+   702→   702→          <DialogHeader><DialogTitle>Welcome Back</DialogTitle></DialogHeader>
+   703→   703→          <div className="space-y-4">
+   704→   704→            <div><Label>Phone Number</Label><Input type="tel" placeholder="Enter phone number" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} className="mt-1" /></div>
+   705→   705→            <div><Label>Password</Label><Input type="password" placeholder="Enter password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="mt-1" onKeyDown={e => e.key === 'Enter' && handleLogin()} /></div>
+   706→   706→            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loginLoading} onClick={handleLogin}>{loginLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Login</Button>
+   707→   707→            <Button variant="link" className="w-full" onClick={() => { setShowLogin(false); setShowRegister(true); }}>Don&apos;t have an account? Register</Button>
+   708→   708→          </div>
+   709→   709→        </DialogContent>
+   710→   710→      </Dialog>
+   711→   711→
+   712→   712→      {/* REGISTER MODAL */}
+   713→   713→      <Dialog open={showRegister} onOpenChange={setShowRegister}>
+   714→   714→        <DialogContent className="sm:max-w-md">
+   715→   715→          <DialogHeader><DialogTitle>Create Account</DialogTitle></DialogHeader>
+   716→   716→          <div className="space-y-4">
+   717→   717→            <div><Label>Full Name</Label><Input placeholder="Enter full name" value={regName} onChange={e => setRegName(e.target.value)} className="mt-1" /></div>
+   718→   718→            <div><Label>Phone Number</Label><Input type="tel" placeholder="Enter phone number" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="mt-1" /></div>
+   719→   719→            <div><Label>Password</Label><Input type="password" placeholder="Enter password" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="mt-1" /></div>
+   720→   720→            <div><Label>Confirm Password</Label><Input type="password" placeholder="Confirm password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} className="mt-1" onKeyDown={e => e.key === 'Enter' && handleRegister()} /></div>
+   721→   721→            {urlRefCode && <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-3 text-sm text-center"><Gift className="h-4 w-4 inline mr-1 text-emerald-600" /> You were referred by a friend! <span className="font-mono font-bold">{urlRefCode}</span></div>}
+   722→   722→            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={regLoading} onClick={handleRegister}>{regLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Create Account</Button>
+   723→   723→            <Button variant="link" className="w-full" onClick={() => { setShowRegister(false); setShowLogin(true); }}>Already have an account? Login</Button>
+   724→   724→          </div>
+   725→   725→        </DialogContent>
+   726→   726→      </Dialog>
+   727→   727→
+   728→   728→      {/* ADMIN LOGIN DIALOG */}
+   729→   729→      <Dialog open={showAdminLogin} onOpenChange={setShowAdminLogin}>
+   730→   730→        <DialogContent className="sm:max-w-sm">
+   731→   731→          <DialogHeader><DialogTitle>Admin Login</DialogTitle></DialogHeader>
+   732→   732→          <div className="space-y-4">
+   733→   733→            <div><Label>Enter admin password</Label><Input type="password" placeholder="Enter admin password" value={adminPwdInput} onChange={e => setAdminPwdInput(e.target.value)} className="mt-1" onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} /></div>
+   734→   734→            <Button className="w-full" disabled={adminPwdLoading} onClick={handleAdminLogin}>{adminPwdLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Login</Button>
+   735→   735→          </div>
+   736→   736→        </DialogContent>
+   737→   737→      </Dialog>
+   738→   738→
+   739→   739→      {/* ADMIN PANEL */}
+   740→   740→      {showAdmin && adminAuthenticated && <AdminPanel onClose={() => { setShowAdmin(false); setAdminAuthenticated(false); }} adminPassword={adminPassword} />}
+   741→   741→
+   742→   742→      {/* AI CHAT */}
+   743→   743→      <AiChat />
+   744→   744→
+   745→   745→      {/* TOAST FIX: KBD SHORTCUT */}
+   746→   746→      <div className="fixed bottom-0 left-0 pointer-events-none opacity-0">
+   747→   747→        <span className="sr-only">Notifications (F8)</span>
+   748→   748→      </div>
+   749→   749→    </div>
+   750→   750→  );
+   751→   751→}
+   752→   752→

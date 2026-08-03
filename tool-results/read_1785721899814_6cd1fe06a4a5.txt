@@ -1,0 +1,1455 @@
+   100→}
+   101→
+   102→interface SiteSettings {
+   103→  siteName: string;
+   104→  siteDescription: string;
+   105→  bankName: string;
+   106→  bankAccountNumber: string;
+   107→  bankAccountName: string;
+   108→  contactEmail: string;
+   109→  contactPhone: string;
+   110→  contactWhatsApp: string;
+   111→  paymentInstructions: string;
+   112→  adminPassword: string;
+   113→}
+   114→
+   115→const defaultSettings: SiteSettings = {
+   116→  siteName: '',
+   117→  siteDescription: '',
+   118→  bankName: '',
+   119→  bankAccountNumber: '',
+   120→  bankAccountName: '',
+   121→  contactEmail: '',
+   122→  contactPhone: '',
+   123→  contactWhatsApp: '',
+   124→  paymentInstructions: '',
+   125→  adminPassword: '',
+   126→};
+   127→
+   128→const navItems = [
+   129→  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+   130→  { id: 'deposits', label: 'Deposits', icon: CreditCard },
+   131→  { id: 'orders', label: 'Orders', icon: ShoppingCart },
+   132→  { id: 'users', label: 'Users', icon: Users },
+   133→  { id: 'plans', label: 'Data Plans', icon: LayoutDashboard },
+   134→  { id: 'settings', label: 'Settings', icon: Settings },
+   135→];
+   136→
+   137→export function AdminPanel({ onClose, adminPassword }: AdminPanelProps) {
+   138→  const [activeTab, setActiveTab] = useState('dashboard');
+   139→  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+   140→
+   141→  const [stats, setStats] = useState<DashboardStats | null>(null);
+   142→  const [statsLoading, setStatsLoading] = useState(true);
+   143→
+   144→  const [deposits, setDeposits] = useState<Deposit[]>([]);
+   145→  const [depositsLoading, setDepositsLoading] = useState(true);
+   146→  const [depositFilter, setDepositFilter] = useState('all');
+   147→
+   148→  const [orders, setOrders] = useState<Order[]>([]);
+   149→  const [ordersLoading, setOrdersLoading] = useState(true);
+   150→  const [orderFilter, setOrderFilter] = useState('all');
+   151→
+   152→  const [users, setUsers] = useState<User[]>([]);
+   153→  const [usersLoading, setUsersLoading] = useState(true);
+   154→
+   155→  const [plans, setPlans] = useState<Plan[]>([]);
+   156→  const [plansLoading, setPlansLoading] = useState(true);
+   157→  const [planNetworkFilter, setPlanNetworkFilter] = useState('all');
+   158→
+   159→  const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
+   160→  const [settingsLoading, setSettingsLoading] = useState(true);
+   161→  const [settingsSaving, setSettingsSaving] = useState(false);
+   162→  const [copied, setCopied] = useState(false);
+   163→
+   164→  const [selectedDeposit, setSelectedDeposit] = useState<Deposit | null>(null);
+   165→  const [depositDetailOpen, setDepositDetailOpen] = useState(false);
+   166→  const [depositStatus, setDepositStatus] = useState('');
+   167→  const [depositMessage, setDepositMessage] = useState('');
+   168→  const [depositNotes, setDepositNotes] = useState('');
+   169→  const [depositUpdating, setDepositUpdating] = useState(false);
+   170→
+   171→  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+   172→  const [orderDetailOpen, setOrderDetailOpen] = useState(false);
+   173→  const [orderStatus, setOrderStatus] = useState('');
+   174→  const [orderNotes, setOrderNotes] = useState('');
+   175→  const [orderUpdating, setOrderUpdating] = useState(false);
+   176→
+   177→  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+   178→  const [userDetailOpen, setUserDetailOpen] = useState(false);
+   179→  const [userActive, setUserActive] = useState(false);
+   180→  const [balanceAdjustment, setBalanceAdjustment] = useState('');
+   181→  const [userUpdating, setUserUpdating] = useState(false);
+   182→
+   183→  const [editPlanOpen, setEditPlanOpen] = useState(false);
+   184→  const [addPlanOpen, setAddPlanOpen] = useState(false);
+   185→  const [planForm, setPlanForm] = useState({
+   186→    networkId: '', name: '', size: '', price: '', validity: '', active: true,
+   187→  });
+   188→  const [planSaving, setPlanSaving] = useState(false);
+   189→  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+   190→
+   191→  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+   192→  const [imageViewerSrc, setImageViewerSrc] = useState('');
+   193→
+   194→  const apiHeaders = useCallback(() => ({
+   195→    'Content-Type': 'application/json',
+   196→    'x-admin-password': adminPassword,
+   197→  }), [adminPassword]);
+   198→
+   199→  const fetchJSON = useCallback(async (url: string, options?: RequestInit) => {
+   200→    const res = await fetch(url, {
+   201→      ...options,
+   202→      headers: { ...apiHeaders(), ...options?.headers },
+   203→      signal: AbortSignal.timeout(30000),
+   204→    });
+   205→    if (!res.ok) {
+   206→      let msg = `API error: ${res.status}`;
+   207→      try { const d = await res.json(); if (d.error) msg = d.error; } catch {}
+   208→      throw new Error(msg);
+   209→    }
+   210→    return res.json();
+   211→  }, [apiHeaders]);
+   212→
+   213→  useEffect(() => {
+   214→    fetchJSON('/api/admin/auth', { method: 'POST' }).catch(() => onClose());
+   215→  }, [fetchJSON, onClose]);
+   216→
+   217→  const fetchDashboard = useCallback(async () => {
+   218→    setStatsLoading(true);
+   219→    try {
+   220→      const data = await fetchJSON('/api/admin/dashboard');
+   221→      setStats(data);
+   222→    } catch {
+   223→      setStats(null);
+   224→    } finally {
+   225→      setStatsLoading(false);
+   226→    }
+   227→  }, [fetchJSON]);
+   228→
+   229→  const fetchDeposits = useCallback(async (status?: string) => {
+   230→    setDepositsLoading(true);
+   231→    try {
+   232→      const query = status && status !== 'all' ? `?status=${status}` : '';
+   233→      const data = await fetchJSON(`/api/admin/deposits${query}`);
+   234→      setDeposits(Array.isArray(data?.deposits) ? data.deposits : Array.isArray(data) ? data : []);
+   235→    } catch {
+   236→      setDeposits([]);
+   237→    } finally {
+   238→      setDepositsLoading(false);
+   239→    }
+   240→  }, [fetchJSON]);
+   241→
+   242→  const fetchOrders = useCallback(async (status?: string) => {
+   243→    setOrdersLoading(true);
+   244→    try {
+   245→      const query = status && status !== 'all' ? `?status=${status}` : '';
+   246→      const data = await fetchJSON(`/api/admin/orders${query}`);
+   247→      setOrders(Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : []);
+   248→    } catch {
+   249→      setOrders([]);
+   250→    } finally {
+   251→      setOrdersLoading(false);
+   252→    }
+   253→  }, [fetchJSON]);
+   254→
+   255→  const fetchUsers = useCallback(async () => {
+   256→    setUsersLoading(true);
+   257→    try {
+   258→      const data = await fetchJSON('/api/admin/users');
+   259→      setUsers(Array.isArray(data?.users) ? data.users : Array.isArray(data) ? data : []);
+   260→    } catch {
+   261→      setUsers([]);
+   262→    } finally {
+   263→      setUsersLoading(false);
+   264→    }
+   265→  }, [fetchJSON]);
+   266→
+   267→  const fetchPlans = useCallback(async () => {
+   268→    setPlansLoading(true);
+   269→    try {
+   270→      const data = await fetchJSON('/api/admin/plans');
+   271→      setPlans(Array.isArray(data?.plans) ? data.plans : Array.isArray(data) ? data : []);
+   272→    } catch {
+   273→      setPlans([]);
+   274→    } finally {
+   275→      setPlansLoading(false);
+   276→    }
+   277→  }, [fetchJSON]);
+   278→
+   279→  const fetchSettings = useCallback(async () => {
+   280→    setSettingsLoading(true);
+   281→    try {
+   282→      const data = await fetchJSON('/api/admin/settings');
+   283→      setSettings({ ...defaultSettings, ...data });
+   284→    } catch {
+   285→      setSettings(defaultSettings);
+   286→    } finally {
+   287→      setSettingsLoading(false);
+   288→    }
+   289→  }, [fetchJSON]);
+   290→
+   291→  useEffect(() => {
+   292→    fetchDashboard();
+   293→  }, [fetchDashboard]);
+   294→
+   295→  useEffect(() => {
+   296→    if (activeTab === 'deposits') fetchDeposits(depositFilter);
+   297→  }, [activeTab, depositFilter, fetchDeposits]);
+   298→
+   299→  useEffect(() => {
+   300→    if (activeTab === 'orders') fetchOrders(orderFilter);
+   301→  }, [activeTab, orderFilter, fetchOrders]);
+   302→
+   303→  useEffect(() => {
+   304→    if (activeTab === 'users') fetchUsers();
+   305→  }, [activeTab, fetchUsers]);
+   306→
+   307→  useEffect(() => {
+   308→    if (activeTab === 'plans') fetchPlans();
+   309→  }, [activeTab, fetchPlans]);
+   310→
+   311→  useEffect(() => {
+   312→    if (activeTab === 'settings') fetchSettings();
+   313→  }, [activeTab, fetchSettings]);
+   314→
+   315→  const handleTabChange = (tab: string) => {
+   316→    setActiveTab(tab);
+   317→    setMobileMenuOpen(false);
+   318→  };
+   319→
+   320→  const openDepositDetail = (deposit: Deposit) => {
+   321→    setSelectedDeposit(deposit);
+   322→    setDepositStatus(deposit.status);
+   323→    setDepositMessage(deposit.message || '');
+   324→    setDepositNotes(deposit.adminNotes || '');
+   325→    setDepositDetailOpen(true);
+   326→  };
+   327→
+   328→  const handleUpdateDeposit = async () => {
+   329→    if (!selectedDeposit) return;
+   330→    setDepositUpdating(true);
+   331→    try {
+   332→      await fetchJSON(`/api/admin/deposits/${selectedDeposit.id}`, {
+   333→        method: 'PUT',
+   334→        body: JSON.stringify({
+   335→          status: depositStatus,
+   336→          adminNotes: depositNotes,
+   337→          message: depositMessage,
+   338→        }),
+   339→      });
+   340→      setDepositDetailOpen(false);
+   341→      fetchDeposits(depositFilter);
+   342→      fetchDashboard();
+   343→    } catch {
+   344→    } finally {
+   345→      setDepositUpdating(false);
+   346→    }
+   347→  };
+   348→
+   349→  const openOrderDetail = (order: Order) => {
+   350→    setSelectedOrder(order);
+   351→    setOrderStatus(order.status);
+   352→    setOrderNotes(order.notes || '');
+   353→    setOrderDetailOpen(true);
+   354→  };
+   355→
+   356→  const handleUpdateOrder = async () => {
+   357→    if (!selectedOrder) return;
+   358→    setOrderUpdating(true);
+   359→    try {
+   360→      await fetchJSON(`/api/admin/orders/${selectedOrder.id}`, {
+   361→        method: 'PUT',
+   362→        body: JSON.stringify({ status: orderStatus, notes: orderNotes }),
+   363→      });
+   364→      setOrderDetailOpen(false);
+   365→      fetchOrders(orderFilter);
+   366→    } catch {
+   367→    } finally {
+   368→      setOrderUpdating(false);
+   369→    }
+   370→  };
+   371→
+   372→  const openUserDetail = (user: User) => {
+   373→    setSelectedUser(user);
+   374→    setUserActive(user.active);
+   375→    setBalanceAdjustment('');
+   376→    setUserDetailOpen(true);
+   377→  };
+   378→
+   379→  const handleUpdateUser = async () => {
+   380→    if (!selectedUser) return;
+   381→    setUserUpdating(true);
+   382→    try {
+   383→      const payload: Record<string, unknown> = { active: userActive };
+   384→      if (balanceAdjustment) {
+   385→        payload.balanceAdjustment = parseFloat(balanceAdjustment);
+   386→      }
+   387→      await fetchJSON(`/api/admin/users/${selectedUser.id}`, {
+   388→        method: 'PUT',
+   389→        body: JSON.stringify(payload),
+   390→      });
+   391→      setUserDetailOpen(false);
+   392→      fetchUsers();
+   393→    } catch {
+   394→    } finally {
+   395→      setUserUpdating(false);
+   396→    }
+   397→  };
+   398→
+   399→  const openAddPlan = () => {
+   400→    setPlanForm({ networkId: '', name: '', size: '', price: '', validity: '', active: true });
+   401→    setAddPlanOpen(true);
+   402→  };
+   403→
+   404→  const openEditPlan = (plan: Plan) => {
+   405→    setEditingPlanId(plan.id);
+   406→    setPlanForm({
+   407→      networkId: plan.networkId,
+   408→      name: plan.name,
+   409→      size: plan.size,
+   410→      price: String(plan.price),
+   411→      validity: plan.validity,
+   412→      active: plan.active,
+   413→    });
+   414→    setEditPlanOpen(true);
+   415→  };
+   416→
+   417→  const handleDeletePlan = async (planId: string) => {
+   418→    if (!confirm('Are you sure you want to delete this plan?')) return;
+   419→    try {
+   420→      await fetchJSON(`/api/admin/plans/${planId}`, { method: 'DELETE' });
+   421→      fetchPlans();
+   422→    } catch {
+   423→    }
+   424→  };
+   425→
+   426→  const handleSavePlan = async (isEdit: boolean) => {
+   427→    setPlanSaving(true);
+   428→    try {
+   429→      const body = {
+   430→        networkId: planForm.networkId,
+   431→        name: planForm.name,
+   432→        size: parseFloat(planForm.size) || 0,
+   433→        price: parseFloat(planForm.price) || 0,
+   434→        validity: planForm.validity,
+   435→        active: planForm.active,
+   436→      };
+   437→      if (!body.networkId) { alert('Please select a network'); return; }
+   438→      if (!body.name) { alert('Please enter a plan name'); return; }
+   439→      if (!body.size || body.size <= 0) { alert('Please enter a valid data size'); return; }
+   440→      if (!body.price || body.price <= 0) { alert('Please enter a valid price'); return; }
+   441→      if (!body.validity) { alert('Please enter a validity period'); return; }
+   442→      if (isEdit && editingPlanId) {
+   443→        await fetchJSON(`/api/admin/plans/${editingPlanId}`, {
+   444→          method: 'PUT', body: JSON.stringify(body),
+   445→        });
+   446→      } else {
+   447→        await fetchJSON('/api/admin/plans', {
+   448→          method: 'POST', body: JSON.stringify(body),
+   449→        });
+   450→      }
+   451→      setEditPlanOpen(false);
+   452→      setAddPlanOpen(false);
+   453→      fetchPlans();
+   454→    } catch (e) {
+   455→      const msg = e instanceof Error ? e.message : 'Failed to save plan';
+   456→      alert(msg);
+   457→    } finally {
+   458→      setPlanSaving(false);
+   459→    }
+   460→  };
+   461→
+   462→  const handleSaveSettings = async () => {
+   463→    setSettingsSaving(true);
+   464→    try {
+   465→      const payload: Record<string, string> = { ...settings };
+   466→      if (!payload.adminPassword) delete payload.adminPassword;
+   467→      await fetchJSON('/api/admin/settings', {
+   468→        method: 'PUT', body: JSON.stringify(payload),
+   469→      });
+   470→    } catch {
+   471→    } finally {
+   472→      setSettingsSaving(false);
+   473→    }
+   474→  };
+   475→
+   476→  const copyToClipboard = async (text: string) => {
+   477→    try {
+   478→      await navigator.clipboard.writeText(text);
+   479→      setCopied(true);
+   480→      setTimeout(() => setCopied(false), 2000);
+   481→    } catch {
+   482→    }
+   483→  };
+   484→
+   485→  const openImageViewer = (src: string) => {
+   486→    setImageViewerSrc(src);
+   487→    setImageViewerOpen(true);
+   488→  };
+   489→
+   490→  const formatDate = (dateStr: string) => {
+   491→    try {
+   492→      return new Date(dateStr).toLocaleDateString('en-NG', {
+   493→        day: '2-digit', month: 'short', year: 'numeric',
+   494→      });
+   495→    } catch {
+   496→      return dateStr;
+   497→    }
+   498→  };
+   499→
+   500→  const formatCurrency = (amount: number) =>
+   501→    `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
+   502→
+   503→  const sidebar = (
+   504→    <aside className="flex h-full w-64 flex-col border-r bg-card">
+   505→      <div className="flex items-center justify-between border-b p-4">
+   506→        <h1 className="text-lg font-bold text-emerald-600">Admin Panel</h1>
+   507→        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(false)}>
+   508→          <X className="h-5 w-5" />
+   509→        </Button>
+   510→      </div>
+   511→      <nav className="flex-1 space-y-1 p-3">
+   512→        {navItems.map((item) => {
+   513→          const Icon = item.icon;
+   514→          const isActive = activeTab === item.id;
+   515→          return (
+   516→            <button
+   517→              key={item.id}
+   518→              onClick={() => handleTabChange(item.id)}
+   519→              className={cn(
+   520→                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+   521→                isActive
+   522→                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+   523→                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+   524→              )}
+   525→            >
+   526→              <Icon className="h-5 w-5" />
+   527→              {item.label}
+   528→            </button>
+   529→          );
+   530→        })}
+   531→      </nav>
+   532→      <div className="border-t p-3">
+   533→        <button
+   534→          onClick={onClose}
+   535→          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+   536→        >
+   537→          <LogOut className="h-5 w-5" />
+   538→          Logout
+   539→        </button>
+   540→      </div>
+   541→    </aside>
+   542→  );
+   543→
+   544→  const renderStatusBadge = (status: string) => {
+   545→    const s = status.toLowerCase();
+   546→    if (s === 'pending' || s === 'processing')
+   547→      return <Badge variant="outline" className="border-orange-400 text-orange-600 bg-orange-50 dark:bg-orange-950 dark:text-orange-400">{status}</Badge>;
+   548→    if (s === 'approved' || s === 'delivered' || s === 'active')
+   549→      return <Badge className="bg-emerald-600 hover:bg-emerald-700">{status}</Badge>;
+   550→    if (s === 'rejected' || s === 'failed' || s === 'inactive')
+   551→      return <Badge variant="destructive">{status}</Badge>;
+   552→    return <Badge variant="secondary">{status}</Badge>;
+   553→  };
+   554→
+   555→  const renderDashboard = () => (
+   556→    <div className="space-y-6">
+   557→      <h2 className="text-2xl font-bold">Dashboard</h2>
+   558→      {statsLoading ? (
+   559→        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+   560→          {[1, 2, 3, 4].map((i) => (
+   561→            <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+   562→          ))}
+   563→        </div>
+   564→      ) : stats ? (
+   565→        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+   566→          <div className="rounded-xl border bg-card p-4">
+   567→            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+   568→              <Users className="h-4 w-4" /> Total Users
+   569→            </div>
+   570→            <p className="mt-2 text-2xl font-bold">{stats.totalUsers.toLocaleString()}</p>
+   571→          </div>
+   572→          <div className="rounded-xl border bg-card p-4">
+   573→            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+   574→              <Bell className="h-4 w-4" /> Pending Deposits
+   575→              {stats.pendingDeposits > 0 && (
+   576→                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600">
+   577→                  {stats.pendingDeposits}
+   578→                </span>
+   579→              )}
+   580→            </div>
+   581→            <p className="mt-2 text-2xl font-bold">{stats.pendingDeposits}</p>
+   582→          </div>
+   583→          <div className="rounded-xl border bg-card p-4">
+   584→            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+   585→              <ShoppingCart className="h-4 w-4" /> Total Orders
+   586→            </div>
+   587→            <p className="mt-2 text-2xl font-bold">{stats.totalOrders.toLocaleString()}</p>
+   588→          </div>
+   589→          <div className="rounded-xl border bg-card p-4">
+   590→            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+   591→              <CreditCard className="h-4 w-4" /> Total Revenue
+   592→            </div>
+   593→            <p className="mt-2 text-2xl font-bold text-emerald-600">{formatCurrency(stats.totalRevenue)}</p>
+   594→          </div>
+   595→        </div>
+   596→      ) : (
+   597→        <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900 dark:bg-red-950">
+   598→          <AlertCircle className="h-4 w-4" /> Failed to load dashboard stats.
+   599→        </div>
+   600→      )}
+   601→      <div>
+   602→        <h3 className="mb-3 text-lg font-semibold">Quick Actions</h3>
+   603→        <div className="grid grid-cols-2 gap-4">
+   604→          <button
+   605→            onClick={() => handleTabChange('deposits')}
+   606→            className="rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30"
+   607→          >
+   608→            <CreditCard className="mb-2 h-6 w-6 text-emerald-600" />
+   609→            <p className="font-medium">Manage Deposits</p>
+   610→            <p className="text-xs text-muted-foreground">Review and approve deposits</p>
+   611→          </button>
+   612→          <button
+   613→            onClick={() => handleTabChange('plans')}
+   614→            className="rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30"
+   615→          >
+   616→            <LayoutDashboard className="mb-2 h-6 w-6 text-emerald-600" />
+   617→            <p className="font-medium">Data Plans</p>
+   618→            <p className="text-xs text-muted-foreground">Add and manage data plans</p>
+   619→          </button>
+   620→          <button
+   621→            onClick={() => handleTabChange('users')}
+   622→            className="rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30"
+   623→          >
+   624→            <Users className="mb-2 h-6 w-6 text-emerald-600" />
+   625→            <p className="font-medium">All Users</p>
+   626→            <p className="text-xs text-muted-foreground">View and manage users</p>
+   627→          </button>
+   628→          <button
+   629→            onClick={() => handleTabChange('settings')}
+   630→            className="rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/30"
+   631→          >
+   632→            <Settings className="mb-2 h-6 w-6 text-emerald-600" />
+   633→            <p className="font-medium">Settings</p>
+   634→            <p className="text-xs text-muted-foreground">Configure site settings</p>
+   635→          </button>
+   636→        </div>
+   637→      </div>
+   638→      <div>
+   639→        <div className="mb-3 flex items-center justify-between">
+   640→          <h3 className="text-lg font-semibold">Recent Pending Deposits</h3>
+   641→          <button
+   642→            onClick={() => handleTabChange('deposits')}
+   643→            className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+   644→          >
+   645→            View All →
+   646→          </button>
+   647→        </div>
+   648→        {depositsLoading ? (
+   649→          <div className="space-y-3">
+   650→            {[1, 2, 3].map((i) => (
+   651→              <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
+   652→            ))}
+   653→          </div>
+   654→        ) : deposits.filter((d) => d.status.toLowerCase() === 'pending').length === 0 ? (
+   655→          <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
+   656→            No pending deposits at the moment.
+   657→          </p>
+   658→        ) : (
+   659→          <div className="space-y-2">
+   660→            {deposits
+   661→              .filter((d) => d.status.toLowerCase() === 'pending')
+   662→              .slice(0, 5)
+   663→              .map((deposit) => (
+   664→                <button
+   665→                  key={deposit.id}
+   666→                  onClick={() => openDepositDetail(deposit)}
+   667→                  className="flex w-full items-center justify-between rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300"
+   668→                >
+   669→                  <div>
+   670→                    <p className="font-medium">{deposit.user?.name || 'Unknown User'}</p>
+   671→                    <p className="text-xs text-muted-foreground">
+   672→                      {deposit.user?.phone || 'N/A'} • {formatDate(deposit.createdAt)}
+   673→                    </p>
+   674→                  </div>
+   675→                  <div className="flex items-center gap-3">
+   676→                    <span className="font-semibold">{formatCurrency(deposit.amount)}</span>
+   677→                    {renderStatusBadge('Pending')}
+   678→                  </div>
+   679→                </button>
+   680→              ))}
+   681→          </div>
+   682→        )}
+   683→      </div>
+   684→    </div>
+   685→  );
+   686→
+   687→  const renderDeposits = () => {
+   688→    const filterTabs = ['all', 'pending', 'approved', 'rejected'];
+   689→    return (
+   690→      <div className="space-y-4">
+   691→        <h2 className="text-2xl font-bold">Deposits</h2>
+   692→        <div className="flex gap-2">
+   693→          {filterTabs.map((tab) => (
+   694→            <button
+   695→              key={tab}
+   696→              onClick={() => setDepositFilter(tab)}
+   697→              className={cn(
+   698→                'rounded-lg px-4 py-2 text-sm font-medium capitalize transition-colors',
+   699→                depositFilter === tab
+   700→                  ? 'bg-emerald-600 text-white'
+   701→                  : 'bg-muted text-muted-foreground hover:bg-accent'
+   702→              )}
+   703→            >
+   704→              {tab}
+   705→            </button>
+   706→          ))}
+   707→        </div>
+   708→        {depositsLoading ? (
+   709→          <div className="space-y-3">
+   710→            {[1, 2, 3].map((i) => (
+   711→              <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />
+   712→            ))}
+   713→          </div>
+   714→        ) : deposits.length === 0 ? (
+   715→          <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
+   716→            No deposits found.
+   717→          </p>
+   718→        ) : (
+   719→          <div className="space-y-2">
+   720→            {deposits.map((deposit) => (
+   721→              <button
+   722→                key={deposit.id}
+   723→                onClick={() => openDepositDetail(deposit)}
+   724→                className="flex w-full items-center justify-between rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300"
+   725→              >
+   726→                <div>
+   727→                  <p className="font-medium">{deposit.user?.name || 'Unknown User'}</p>
+   728→                  <p className="text-xs text-muted-foreground">
+   729→                    {deposit.user?.phone || 'N/A'} • {formatDate(deposit.createdAt)}
+   730→                  </p>
+   731→                </div>
+   732→                <div className="flex items-center gap-3">
+   733→                  <span className="font-semibold">{formatCurrency(deposit.amount)}</span>
+   734→                  {renderStatusBadge(deposit.status)}
+   735→                </div>
+   736→              </button>
+   737→            ))}
+   738→          </div>
+   739→        )}
+   740→      </div>
+   741→    );
+   742→  };
+   743→
+   744→  const renderOrders = () => {
+   745→    const filterTabs = ['all', 'processing', 'delivered', 'failed'];
+   746→    return (
+   747→      <div className="space-y-4">
+   748→        <h2 className="text-2xl font-bold">Orders</h2>
+   749→        <div className="flex gap-2">
+   750→          {filterTabs.map((tab) => (
+   751→            <button
+   752→              key={tab}
+   753→              onClick={() => setOrderFilter(tab)}
+   754→              className={cn(
+   755→                'rounded-lg px-4 py-2 text-sm font-medium capitalize transition-colors',
+   756→                orderFilter === tab
+   757→                  ? 'bg-emerald-600 text-white'
+   758→                  : 'bg-muted text-muted-foreground hover:bg-accent'
+   759→              )}
+   760→            >
+   761→              {tab}
+   762→            </button>
+   763→          ))}
+   764→        </div>
+   765→        {ordersLoading ? (
+   766→          <div className="space-y-3">
+   767→            {[1, 2, 3].map((i) => (
+   768→              <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />
+   769→            ))}
+   770→          </div>
+   771→        ) : orders.length === 0 ? (
+   772→          <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
+   773→            No orders found.
+   774→          </p>
+   775→        ) : (
+   776→          <div className="space-y-2">
+   777→            {orders.map((order) => (
+   778→              <button
+   779→                key={order.id}
+   780→                onClick={() => openOrderDetail(order)}
+   781→                className="flex w-full items-center justify-between rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300"
+   782→              >
+   783→                <div className="flex items-center gap-3">
+   784→                  {order.network && (
+   785→                    <NetworkIcon
+   786→                      slug={order.network.slug}
+   787→                      name={order.network.name}
+   788→                      size={28}
+   789→                    />
+   790→                  )}
+   791→                  <div>
+   792→                    <p className="font-medium">{order.user?.name || 'Unknown User'}</p>
+   793→                    <p className="text-xs text-muted-foreground">
+   794→                      {order.plan?.name || 'Unknown Plan'} • {order.plan?.size || ''}
+   795→                    </p>
+   796→                  </div>
+   797→                </div>
+   798→                <div className="flex items-center gap-3">
+   799→                  <span className="font-semibold">{formatCurrency(order.amount)}</span>
+   800→                  {renderStatusBadge(order.status)}
+   801→                </div>
+   802→              </button>
+   803→            ))}
+   804→          </div>
+   805→        )}
+   806→      </div>
+   807→    );
+   808→  };
+   809→
+   810→  const renderUsers = () => (
+   811→    <div className="space-y-4">
+   812→      <h2 className="text-2xl font-bold">Users</h2>
+   813→      {usersLoading ? (
+   814→        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   815→          {[1, 2, 3, 4, 5, 6].map((i) => (
+   816→            <div key={i} className="h-32 animate-pulse rounded-xl bg-muted" />
+   817→          ))}
+   818→        </div>
+   819→      ) : users.length === 0 ? (
+   820→        <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
+   821→          No users found.
+   822→        </p>
+   823→      ) : (
+   824→        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   825→          {users.map((user) => (
+   826→            <button
+   827→              key={user.id}
+   828→              onClick={() => openUserDetail(user)}
+   829→              className="flex items-center gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:border-emerald-300"
+   830→            >
+   831→              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+   832→                {user.name?.charAt(0)?.toUpperCase() || 'U'}
+   833→              </div>
+   834→              <div className="min-w-0 flex-1">
+   835→                <p className="truncate font-medium">{user.name}</p>
+   836→                <p className="text-xs text-muted-foreground">{user.phone}</p>
+   837→                <p className="text-sm font-semibold text-emerald-600">
+   838→                  {formatCurrency(user.balance)}
+   839→                </p>
+   840→              </div>
+   841→              {renderStatusBadge(user.active ? 'Active' : 'Inactive')}
+   842→            </button>
+   843→          ))}
+   844→        </div>
+   845→      )}
+   846→    </div>
+   847→  );
+   848→
+   849→  const renderPlans = () => {
+   850→    const filteredPlans =
+   851→      planNetworkFilter === 'all'
+   852→        ? plans
+   853→        : plans.filter((p) => p.network?.slug === planNetworkFilter);
+   854→    return (
+   855→      <div className="space-y-4">
+   856→        <div className="flex flex-wrap items-center justify-between gap-3">
+   857→          <h2 className="text-2xl font-bold">Data Plans</h2>
+   858→          <div className="flex items-center gap-3">
+   859→            <Select value={planNetworkFilter} onValueChange={setPlanNetworkFilter}>
+   860→              <SelectTrigger className="w-44">
+   861→                <SelectValue placeholder="All Networks" />
+   862→              </SelectTrigger>
+   863→              <SelectContent>
+   864→                <SelectItem value="all">All Networks</SelectItem>
+   865→                <SelectItem value="mtn">MTN</SelectItem>
+   866→                <SelectItem value="airtel">Airtel</SelectItem>
+   867→                <SelectItem value="glo">Glo</SelectItem>
+   868→                <SelectItem value="9mobile">9Mobile</SelectItem>
+   869→              </SelectContent>
+   870→            </Select>
+   871→            <Button onClick={openAddPlan} className="bg-emerald-600 hover:bg-emerald-700">
+   872→              <Plus className="mr-2 h-4 w-4" /> Add Plan
+   873→            </Button>
+   874→          </div>
+   875→        </div>
+   876→        {plansLoading ? (
+   877→          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   878→            {[1, 2, 3, 4, 5, 6].map((i) => (
+   879→              <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
+   880→            ))}
+   881→          </div>
+   882→        ) : filteredPlans.length === 0 ? (
+   883→          <p className="rounded-xl border bg-card p-8 text-center text-muted-foreground">
+   884→            No plans found.
+   885→          </p>
+   886→        ) : (
+   887→          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   888→            {filteredPlans.map((plan) => (
+   889→              <div
+   890→                key={plan.id}
+   891→                className="rounded-xl border bg-card p-4"
+   892→              >
+   893→                <div className="flex items-start justify-between">
+   894→                  <div className="flex items-center gap-2">
+   895→                    {plan.network && (
+   896→                      <NetworkIcon
+   897→                        slug={plan.network.slug}
+   898→                        name={plan.network.name}
+   899→                        size={24}
+   900→                      />
+   901→                    )}
+   902→                    <div>
+   903→                      <p className="font-medium">
+   904→                        {plan.network?.name || 'Unknown'} — {plan.size}
+   905→                      </p>
+   906→                      <p className="text-xs text-muted-foreground">
+   907→                        {plan.size} • {plan.validity}
+   908→                      </p>
+   909→                    </div>
+   910→                  </div>
+   911→                  {plan.active ? (
+   912→                    <Badge className="bg-emerald-600">Active</Badge>
+   913→                  ) : (
+   914→                    <Badge variant="secondary">Inactive</Badge>
+   915→                  )}
+   916→                </div>
+   917→                <div className="mt-3 flex items-center justify-between">
+   918→                  <span className="text-lg font-bold text-emerald-600">
+   919→                    {formatCurrency(plan.price)}
+   920→                  </span>
+   921→                  <div className="flex gap-1">
+   922→                    <Button
+   923→                      variant="ghost"
+   924→                      size="icon"
+   925→                      className="h-8 w-8"
+   926→                      onClick={() => openEditPlan(plan)}
+   927→                    >
+   928→                      <Pencil className="h-4 w-4" />
+   929→                    </Button>
+   930→                    <Button
+   931→                      variant="ghost"
+   932→                      size="icon"
+   933→                      className="h-8 w-8 text-red-500 hover:text-red-600"
+   934→                      onClick={() => handleDeletePlan(plan.id)}
+   935→                    >
+   936→                      <Trash2 className="h-4 w-4" />
+   937→                    </Button>
+   938→                  </div>
+   939→                </div>
+   940→              </div>
+   941→            ))}
+   942→          </div>
+   943→        )}
+   944→      </div>
+   945→    );
+   946→  };
+   947→
+   948→  const renderSettings = () => (
+   949→    <div className="space-y-6">
+   950→      <h2 className="text-2xl font-bold">Settings</h2>
+   951→      {settingsLoading ? (
+   952→        <div className="space-y-4">
+   953→          {[1, 2, 3, 4, 5].map((i) => (
+   954→            <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+   955→          ))}
+   956→        </div>
+   957→      ) : (
+   958→        <>
+   959→          <div className="rounded-xl border bg-card p-5 space-y-4">
+   960→            <h3 className="text-lg font-semibold">Site Information</h3>
+   961→            <div className="space-y-3">
+   962→              <div className="space-y-1.5">
+   963→                <Label htmlFor="siteName">Site Name</Label>
+   964→                <Input
+   965→                  id="siteName"
+   966→                  value={settings.siteName}
+   967→                  onChange={(e) => setSettings({ ...settings, siteName: e.target.value })}
+   968→                  placeholder="DataPlug.ng"
+   969→                />
+   970→              </div>
+   971→              <div className="space-y-1.5">
+   972→                <Label htmlFor="siteDescription">Site Description</Label>
+   973→                <Textarea
+   974→                  id="siteDescription"
+   975→                  value={settings.siteDescription}
+   976→                  onChange={(e) => setSettings({ ...settings, siteDescription: e.target.value })}
+   977→                  placeholder="Affordable data plans for all networks"
+   978→                  rows={3}
+   979→                />
+   980→              </div>
+   981→            </div>
+   982→          </div>
+   983→
+   984→          <div className="rounded-xl border bg-card p-5 space-y-4">
+   985→            <h3 className="text-lg font-semibold">Bank Details</h3>
+   986→            <div className="space-y-3">
+   987→              <div className="space-y-1.5">
+   988→                <Label htmlFor="bankName">Bank Name</Label>
+   989→                <Input
+   990→                  id="bankName"
+   991→                  value={settings.bankName}
+   992→                  onChange={(e) => setSettings({ ...settings, bankName: e.target.value })}
+   993→                  placeholder="Wema Bank"
+   994→                />
+   995→              </div>
+   996→              <div className="space-y-1.5">
+   997→                <Label htmlFor="bankAccountNumber">Account Number</Label>
+   998→                <div className="flex gap-2">
+   999→                  <Input
+  1000→                    id="bankAccountNumber"
+  1001→                    value={settings.bankAccountNumber}
+  1002→                    onChange={(e) => setSettings({ ...settings, bankAccountNumber: e.target.value })}
+  1003→                    placeholder="1234567890"
+  1004→                    className="flex-1"
+  1005→                  />
+  1006→                  <Button
+  1007→                    variant="outline"
+  1008→                    size="icon"
+  1009→                    onClick={() => copyToClipboard(settings.bankAccountNumber)}
+  1010→                    className="shrink-0"
+  1011→                  >
+  1012→                    {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+  1013→                  </Button>
+  1014→                </div>
+  1015→              </div>
+  1016→              <div className="space-y-1.5">
+  1017→                <Label htmlFor="bankAccountName">Account Name</Label>
+  1018→                <Input
+  1019→                  id="bankAccountName"
+  1020→                  value={settings.bankAccountName}
+  1021→                  onChange={(e) => setSettings({ ...settings, bankAccountName: e.target.value })}
+  1022→                  placeholder="DataPlug Technologies"
+  1023→                />
+  1024→              </div>
+  1025→            </div>
+  1026→          </div>
+  1027→
+  1028→          <div className="rounded-xl border bg-card p-5 space-y-4">
+  1029→            <h3 className="text-lg font-semibold">Contact Information</h3>
+  1030→            <div className="space-y-3">
+  1031→              <div className="space-y-1.5">
+  1032→                <Label htmlFor="contactEmail">Contact Email</Label>
+  1033→                <Input
+  1034→                  id="contactEmail"
+  1035→                  type="email"
+  1036→                  value={settings.contactEmail}
+  1037→                  onChange={(e) => setSettings({ ...settings, contactEmail: e.target.value })}
+  1038→                  placeholder="support@dataplug.ng"
+  1039→                />
+  1040→              </div>
+  1041→              <div className="space-y-1.5">
+  1042→                <Label htmlFor="contactPhone">Contact Phone</Label>
+  1043→                <Input
+  1044→                  id="contactPhone"
+  1045→                  value={settings.contactPhone}
+  1046→                  onChange={(e) => setSettings({ ...settings, contactPhone: e.target.value })}
+  1047→                  placeholder="08012345678"
+  1048→                />
+  1049→              </div>
+  1050→              <div className="space-y-1.5">
+  1051→                <Label htmlFor="contactWhatsApp">WhatsApp Number</Label>
+  1052→                <Input
+  1053→                  id="contactWhatsApp"
+  1054→                  value={settings.contactWhatsApp}
+  1055→                  onChange={(e) => setSettings({ ...settings, contactWhatsApp: e.target.value })}
+  1056→                  placeholder="08012345678"
+  1057→                />
+  1058→              </div>
+  1059→            </div>
+  1060→          </div>
+  1061→
+  1062→          <div className="rounded-xl border bg-card p-5 space-y-4">
+  1063→            <h3 className="text-lg font-semibold">Payment Instructions</h3>
+  1064→            <div className="space-y-1.5">
+  1065→              <Label htmlFor="paymentInstructions">Instructions shown to users before payment</Label>
+  1066→              <Textarea
+  1067→                id="paymentInstructions"
+  1068→                value={settings.paymentInstructions}
+  1069→                onChange={(e) => setSettings({ ...settings, paymentInstructions: e.target.value })}
+  1070→                placeholder="Transfer to the account details below and upload your proof of payment. Your account will be credited within 5 minutes after verification."
+  1071→                rows={4}
+  1072→              />
+  1073→            </div>
+  1074→          </div>
+  1075→
+  1076→          <div className="rounded-xl border bg-card p-5 space-y-4">
+  1077→            <h3 className="text-lg font-semibold">Security</h3>
+  1078→            <div className="space-y-1.5">
+  1079→              <Label htmlFor="adminPassword">Admin Password</Label>
+  1080→              <Input
+  1081→                id="adminPassword"
+  1082→                type="password"
+  1083→                value={settings.adminPassword}
+  1084→                onChange={(e) => setSettings({ ...settings, adminPassword: e.target.value })}
+  1085→                placeholder="Enter new password"
+  1086→              />
+  1087→              <p className="text-xs text-muted-foreground">
+  1088→                Leave empty to keep current password
+  1089→              </p>
+  1090→            </div>
+  1091→          </div>
+  1092→
+  1093→          <Button
+  1094→            onClick={handleSaveSettings}
+  1095→            disabled={settingsSaving}
+  1096→            className="w-full bg-emerald-600 hover:bg-emerald-700"
+  1097→            size="lg"
+  1098→          >
+  1099→            {settingsSaving ? 'Saving...' : 'Save All Settings'}
+  1100→          </Button>
+  1101→        </>
+  1102→      )}
+  1103→    </div>
+  1104→  );
+  1105→
+  1106→  const renderContent = () => {
+  1107→    switch (activeTab) {
+  1108→      case 'dashboard':
+  1109→        return renderDashboard();
+  1110→      case 'deposits':
+  1111→        return renderDeposits();
+  1112→      case 'orders':
+  1113→        return renderOrders();
+  1114→      case 'users':
+  1115→        return renderUsers();
+  1116→      case 'plans':
+  1117→        return renderPlans();
+  1118→      case 'settings':
+  1119→        return renderSettings();
+  1120→      default:
+  1121→        return renderDashboard();
+  1122→    }
+  1123→  };
+  1124→
+  1125→  return (
+  1126→    <div className="fixed inset-0 z-50 flex bg-background">
+  1127→      {/* Desktop sidebar */}
+  1128→      <div className="hidden md:block">
+  1129→        {sidebar}
+  1130→      </div>
+  1131→
+  1132→      {/* Mobile menu button */}
+  1133→      <Button
+  1134→        variant="ghost"
+  1135→        size="icon"
+  1136→        className="fixed left-4 top-4 z-[60] md:hidden"
+  1137→        onClick={() => setMobileMenuOpen(true)}
+  1138→      >
+  1139→        <Menu className="h-5 w-5" />
+  1140→      </Button>
+  1141→
+  1142→      {/* Mobile sidebar overlay */}
+  1143→      <AnimatePresence>
+  1144→        {mobileMenuOpen && (
+  1145→          <>
+  1146→            <motion.div
+  1147→              initial={{ opacity: 0 }}
+  1148→              animate={{ opacity: 1 }}
+  1149→              exit={{ opacity: 0 }}
+  1150→              className="fixed inset-0 z-[70] bg-black/50 md:hidden"
+  1151→              onClick={() => setMobileMenuOpen(false)}
+  1152→            />
+  1153→            <motion.aside
+  1154→              initial={{ x: -264 }}
+  1155→              animate={{ x: 0 }}
+  1156→              exit={{ x: -264 }}
+  1157→              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+  1158→              className="fixed inset-y-0 left-0 z-[80] md:hidden"
+  1159→            >
+  1160→              {sidebar}
+  1161→            </motion.aside>
+  1162→          </>
+  1163→        )}
+  1164→      </AnimatePresence>
+  1165→
+  1166→      {/* Main content */}
+  1167→      <main className="flex-1 overflow-y-auto">
+  1168→        <div className="mx-auto max-w-5xl p-4 pt-16 md:p-8 md:pt-8">
+  1169→          <AnimatePresence mode="wait">
+  1170→            <motion.div
+  1171→              key={activeTab}
+  1172→              initial={{ opacity: 0, y: 10 }}
+  1173→              animate={{ opacity: 1, y: 0 }}
+  1174→              exit={{ opacity: 0, y: -10 }}
+  1175→              transition={{ duration: 0.2 }}
+  1176→            >
+  1177→              {renderContent()}
+  1178→            </motion.div>
+  1179→          </AnimatePresence>
+  1180→        </div>
+  1181→      </main>
+  1182→
+  1183→      {/* Deposit Detail Dialog */}
+  1184→      <Dialog open={depositDetailOpen} onOpenChange={setDepositDetailOpen}>
+  1185→        <DialogContent className="max-w-lg">
+  1186→          <DialogHeader>
+  1187→            <DialogTitle>Deposit Details</DialogTitle>
+  1188→          </DialogHeader>
+  1189→          {selectedDeposit && (
+  1190→            <div className="space-y-4">
+  1191→              <div className="rounded-xl border bg-muted/50 p-4 space-y-2">
+  1192→                <div className="flex justify-between">
+  1193→                  <span className="text-sm text-muted-foreground">User</span>
+  1194→                  <span className="font-medium">{selectedDeposit.user?.name || 'Unknown'}</span>
+  1195→                </div>
+  1196→                <div className="flex justify-between">
+  1197→                  <span className="text-sm text-muted-foreground">Phone</span>
+  1198→                  <span className="font-medium">{selectedDeposit.user?.phone || 'N/A'}</span>
+  1199→                </div>
+  1200→                <div className="flex justify-between">
+  1201→                  <span className="text-sm text-muted-foreground">Amount</span>
+  1202→                  <span className="font-bold text-emerald-600">{formatCurrency(selectedDeposit.amount)}</span>
+  1203→                </div>
+  1204→                <div className="flex justify-between">
+  1205→                  <span className="text-sm text-muted-foreground">Date</span>
+  1206→                  <span className="font-medium">{formatDate(selectedDeposit.createdAt)}</span>
+  1207→                </div>
+  1208→                <div className="flex justify-between items-center">
+  1209→                  <span className="text-sm text-muted-foreground">Status</span>
+  1210→                  {renderStatusBadge(selectedDeposit.status)}
+  1211→                </div>
+  1212→              </div>
+  1213→              {selectedDeposit.paymentProof && (
+  1214→                <div className="space-y-1.5">
+  1215→                  <Label>Payment Proof</Label>
+  1216→                  <button
+  1217→                    onClick={() => openImageViewer(selectedDeposit.paymentProof)}
+  1218→                    className="relative block w-full overflow-hidden rounded-lg border"
+  1219→                  >
+  1220→                    <img
+  1221→                      src={selectedDeposit.paymentProof}
+  1222→                      alt="Payment proof"
+  1223→                      className="h-40 w-full object-contain bg-muted"
+  1224→                    />
+  1225→                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity hover:opacity-100">
+  1226→                      <Eye className="h-8 w-8 text-white" />
+  1227→                    </div>
+  1228→                  </button>
+  1229→                </div>
+  1230→              )}
+  1231→              <div className="flex gap-2">
+  1232→                <Button
+  1233→                  variant="outline"
+  1234→                  className={cn(
+  1235→                    'flex-1 border-green-300 text-green-600 hover:bg-green-50 hover:text-green-700',
+  1236→                    depositStatus === 'approved' && 'bg-green-50 text-green-700'
+  1237→                  )}
+  1238→                  onClick={() => setDepositStatus('approved')}
+  1239→                >
+  1240→                  Approve
+  1241→                </Button>
+  1242→                <Button
+  1243→                  variant="outline"
+  1244→                  className={cn(
+  1245→                    'flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700',
+  1246→                    depositStatus === 'rejected' && 'bg-red-50 text-red-700'
+  1247→                  )}
+  1248→                  onClick={() => setDepositStatus('rejected')}
+  1249→                >
+  1250→                  Reject
+  1251→                </Button>
+  1252→              </div>
+  1253→              <div className="space-y-1.5">
+  1254→                <Label htmlFor="depositMessage">Message to User (optional)</Label>
+  1255→                <Input
+  1256→                  id="depositMessage"
+  1257→                  value={depositMessage}
+  1258→                  onChange={(e) => setDepositMessage(e.target.value)}
+  1259→                  placeholder="e.g. Payment verified and credited"
+  1260→                />
+  1261→              </div>
+  1262→              <div className="space-y-1.5">
+  1263→                <Label htmlFor="depositNotes">Admin Notes</Label>
+  1264→                <Textarea
+  1265→                  id="depositNotes"
+  1266→                  value={depositNotes}
+  1267→                  onChange={(e) => setDepositNotes(e.target.value)}
+  1268→                  placeholder="Internal notes..."
+  1269→                  rows={3}
+  1270→                />
+  1271→              </div>
+  1272→              <DialogFooter className="gap-2">
+  1273→                <Button variant="outline" onClick={() => setDepositDetailOpen(false)}>
+  1274→                  Cancel
+  1275→                </Button>
+  1276→                <Button
+  1277→                  onClick={handleUpdateDeposit}
+  1278→                  disabled={depositUpdating}
+  1279→                  className="bg-emerald-600 hover:bg-emerald-700"
+  1280→                >
+  1281→                  {depositUpdating ? 'Updating...' : 'Update'}
+  1282→                </Button>
+  1283→              </DialogFooter>
+  1284→            </div>
+  1285→          )}
+  1286→        </DialogContent>
+  1287→      </Dialog>
+  1288→
+  1289→      {/* Order Detail Dialog */}
+  1290→      <Dialog open={orderDetailOpen} onOpenChange={setOrderDetailOpen}>
+  1291→        <DialogContent className="max-w-lg">
+  1292→          <DialogHeader>
+  1293→            <DialogTitle>Order Details</DialogTitle>
+  1294→          </DialogHeader>
+  1295→          {selectedOrder && (
+  1296→            <div className="space-y-4">
+  1297→              <div className="rounded-xl border bg-muted/50 p-4 space-y-2">
+  1298→                <div className="flex items-center gap-3">
+  1299→                  {selectedOrder.network && (
+  1300→                    <NetworkIcon
+  1301→                      slug={selectedOrder.network.slug}
+  1302→                      name={selectedOrder.network.name}
+  1303→                      size={32}
+  1304→                    />
+  1305→                  )}
+  1306→                  <div>
+  1307→                    <p className="font-medium">{selectedOrder.plan?.name || 'Unknown Plan'}</p>
+  1308→                    <p className="text-sm text-muted-foreground">{selectedOrder.plan?.size || ''} • {selectedOrder.network?.name || ''}</p>
+  1309→                  </div>
+  1310→                </div>
+  1311→              </div>
+  1312→              <div className="space-y-2">
+  1313→                <div className="flex justify-between">
+  1314→                  <span className="text-sm text-muted-foreground">User</span>
+  1315→                  <span className="font-medium">{selectedOrder.user?.name || 'Unknown'}</span>
+  1316→                </div>
+  1317→                <div className="flex justify-between">
+  1318→                  <span className="text-sm text-muted-foreground">Phone</span>
+  1319→                  <span className="font-medium">{selectedOrder.user?.phone || 'N/A'}</span>
+  1320→                </div>
+  1321→                <div className="flex justify-between">
+  1322→                  <span className="text-sm text-muted-foreground">Plan</span>
+  1323→                  <span className="font-medium">{selectedOrder.plan?.name || 'N/A'}</span>
+  1324→                </div>
+  1325→                <div className="flex justify-between">
+  1326→                  <span className="text-sm text-muted-foreground">Amount</span>
+  1327→                  <span className="font-bold text-emerald-600">{formatCurrency(selectedOrder.amount)}</span>
+  1328→                </div>
+  1329→                <div className="flex justify-between">
+  1330→                  <span className="text-sm text-muted-foreground">Date</span>
+  1331→                  <span className="font-medium">{formatDate(selectedOrder.createdAt)}</span>
+  1332→                </div>
+  1333→              </div>
+  1334→              <div className="space-y-1.5">
+  1335→                <Label htmlFor="orderStatus">Status</Label>
+  1336→                <Select value={orderStatus} onValueChange={setOrderStatus}>
+  1337→                  <SelectTrigger id="orderStatus">
+  1338→                    <SelectValue />
+  1339→                  </SelectTrigger>
+  1340→                  <SelectContent>
+  1341→                    <SelectItem value="processing">Processing</SelectItem>
+  1342→                    <SelectItem value="delivered">Delivered</SelectItem>
+  1343→                    <SelectItem value="failed">Failed</SelectItem>
+  1344→                  </SelectContent>
+  1345→                </Select>
+  1346→              </div>
+  1347→              <div className="space-y-1.5">
+  1348→                <Label htmlFor="orderNotes">Notes</Label>
+  1349→                <Textarea
+  1350→                  id="orderNotes"
+  1351→                  value={orderNotes}
+  1352→                  onChange={(e) => setOrderNotes(e.target.value)}
+  1353→                  placeholder="Order notes..."
+  1354→                  rows={3}
+  1355→                />
+  1356→              </div>
+  1357→              <DialogFooter>
+  1358→                <Button
+  1359→                  onClick={handleUpdateOrder}
+  1360→                  disabled={orderUpdating}
+  1361→                  className="bg-emerald-600 hover:bg-emerald-700"
+  1362→                >
+  1363→                  {orderUpdating ? 'Updating...' : 'Update'}
+  1364→                </Button>
+  1365→              </DialogFooter>
+  1366→            </div>
+  1367→          )}
+  1368→        </DialogContent>
+  1369→      </Dialog>
+  1370→
+  1371→      {/* User Detail Dialog */}
+  1372→      <Dialog open={userDetailOpen} onOpenChange={setUserDetailOpen}>
+  1373→        <DialogContent className="max-w-md">
+  1374→          <DialogHeader>
+  1375→            <DialogTitle>User Details</DialogTitle>
+  1376→          </DialogHeader>
+  1377→          {selectedUser && (
+  1378→            <div className="space-y-4">
+  1379→              <div className="rounded-xl border bg-muted/50 p-4 space-y-2">
+  1380→                <div className="flex justify-between">
+  1381→                  <span className="text-sm text-muted-foreground">Name</span>
+  1382→                  <span className="font-medium">{selectedUser.name}</span>
+  1383→                </div>
+  1384→                <div className="flex justify-between">
+  1385→                  <span className="text-sm text-muted-foreground">Phone</span>
+  1386→                  <span className="font-medium">{selectedUser.phone}</span>
+  1387→                </div>
+  1388→                <div className="flex justify-between">
+  1389→                  <span className="text-sm text-muted-foreground">Balance</span>
+  1390→                  <span className="font-bold text-emerald-600">{formatCurrency(selectedUser.balance)}</span>
+  1391→                </div>
+  1392→              </div>
+  1393→              <div className="flex items-center justify-between">
+  1394→                <Label htmlFor="userActive">Active</Label>
+  1395→                <Switch
+  1396→                  id="userActive"
+  1397→                  checked={userActive}
+  1398→                  onCheckedChange={setUserActive}
+  1399→                />
+  1400→              </div>
+  1401→              <div className="space-y-1.5">
+  1402→                <Label htmlFor="balanceAdjustment">Balance Adjustment</Label>
+  1403→                <Input
+  1404→                  id="balanceAdjustment"
+  1405→                  value={balanceAdjustment}
+  1406→                  onChange={(e) => setBalanceAdjustment(e.target.value)}
+  1407→                  placeholder="+500 or -200"
+  1408→                />
+  1409→                <p className="text-xs text-muted-foreground">
+  1410→                  Use positive number to add funds, negative to deduct
+  1411→                </p>
+  1412→              </div>
+  1413→              <DialogFooter className="gap-2">
+  1414→                <Button variant="outline" onClick={() => setUserDetailOpen(false)}>
+  1415→                  Close
+  1416→                </Button>
+  1417→                <Button
+  1418→                  onClick={handleUpdateUser}
+  1419→                  disabled={userUpdating}
+  1420→                  className="bg-emerald-600 hover:bg-emerald-700"
+  1421→                >
+  1422→                  {userUpdating ? 'Applying...' : 'Apply'}
+  1423→                </Button>
+  1424→              </DialogFooter>
+  1425→            </div>
+  1426→          )}
+  1427→        </DialogContent>
+  1428→      </Dialog>
+  1429→
+  1430→      {/* Plan Form Dialog (shared for Add & Edit) */}
+  1431→      <Dialog open={editPlanOpen || addPlanOpen} onOpenChange={(open) => {
+  1432→        if (!open) {
+  1433→          setEditPlanOpen(false);
+  1434→          setAddPlanOpen(false);
+  1435→        }
+  1436→      }}>
+  1437→        <DialogContent className="max-w-md">
+  1438→          <DialogHeader>
+  1439→            <DialogTitle>
+  1440→              {editPlanOpen ? 'Edit Plan' : 'Add Plan'}
+  1441→            </DialogTitle>
+  1442→          </DialogHeader>
+  1443→          <div className="space-y-4">
+  1444→            <div className="space-y-1.5">
+  1445→              <Label>Network</Label>
+  1446→              <Select
+  1447→                value={planForm.networkId}
+  1448→                onValueChange={(val) => setPlanForm({ ...planForm, networkId: val })}
+  1449→              >
+  1450→                <SelectTrigger>
+  1451→                  <SelectValue placeholder="Select network" />
+  1452→                </SelectTrigger>
+  1453→                <SelectContent>
+  1454→                  <SelectItem value="mtn">MTN</SelectItem>
+  1455→                  <SelectItem value="airtel">Airtel</SelectItem>
+  1456→                  <SelectItem value="glo">Glo</SelectItem>
+  1457→                  <SelectItem value="9mobile">9Mobile</SelectItem>
+  1458→                </SelectContent>
+  1459→              </Select>
+  1460→            </div>
+  1461→            <div className="space-y-1.5">
+  1462→              <Label htmlFor="planName">Plan Name</Label>
+  1463→              <Input
+  1464→                id="planName"
+  1465→                value={planForm.name}
+  1466→                onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
+  1467→                placeholder="e.g. SME Data"
+  1468→              />
+  1469→            </div>
+  1470→            <div className="grid grid-cols-2 gap-3">
+  1471→              <div className="space-y-1.5">
+  1472→                <Label htmlFor="planSize">Size (GB)</Label>
+  1473→                <Input
+  1474→                  id="planSize"
+  1475→                  type="number"
+  1476→                  value={planForm.size}
+  1477→                  onChange={(e) => setPlanForm({ ...planForm, size: e.target.value })}
+  1478→                  placeholder="1.5"
+  1479→                />
+  1480→              </div>
+  1481→              <div className="space-y-1.5">
+  1482→                <Label htmlFor="planPrice">Price (₦)</Label>
+  1483→                <Input
+  1484→                  id="planPrice"
+  1485→                  type="number"
+  1486→                  value={planForm.price}
+  1487→                  onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })}
+  1488→                  placeholder="1000"
+  1489→                />
+  1490→              </div>
+  1491→            </div>
+  1492→            <div className="space-y-1.5">
+  1493→              <Label htmlFor="planValidity">Validity</Label>
+  1494→              <Input
+  1495→                id="planValidity"
+  1496→                value={planForm.validity}
+  1497→                onChange={(e) => setPlanForm({ ...planForm, validity: e.target.value })}
+  1498→                placeholder="e.g. 30 days"
+  1499→              />
+  1500→            </div>
+  1501→            <div className="flex items-center justify-between">
+  1502→              <Label htmlFor="planActive">Active</Label>
+  1503→              <Switch
+  1504→                id="planActive"
+  1505→                checked={planForm.active}
+  1506→                onCheckedChange={(checked) => setPlanForm({ ...planForm, active: checked })}
+  1507→              />
+  1508→            </div>
+  1509→            <DialogFooter className="gap-2">
+  1510→              <Button
+  1511→                variant="outline"
+  1512→                onClick={() => {
+  1513→                  setEditPlanOpen(false);
+  1514→                  setAddPlanOpen(false);
+  1515→                }}
+  1516→              >
+  1517→                Cancel
+  1518→              </Button>
+  1519→              <Button
+  1520→                onClick={() => handleSavePlan(!!editPlanOpen)}
+  1521→                disabled={planSaving}
+  1522→                className="bg-emerald-600 hover:bg-emerald-700"
+  1523→              >
+  1524→                {planSaving
+  1525→                  ? 'Saving...'
+  1526→                  : editPlanOpen
+  1527→                    ? 'Update'
+  1528→                    : 'Create'
+  1529→                }
+  1530→              </Button>
+  1531→            </DialogFooter>
+  1532→          </div>
+  1533→        </DialogContent>
+  1534→      </Dialog>
+  1535→
+  1536→      {/* Image Viewer Dialog */}
+  1537→      <Dialog open={imageViewerOpen} onOpenChange={setImageViewerOpen}>
+  1538→        <DialogContent className="max-w-3xl p-2">
+  1539→          <DialogHeader className="sr-only">
+  1540→            <DialogTitle>Payment Proof</DialogTitle>
+  1541→          </DialogHeader>
+  1542→          {imageViewerSrc && (
+  1543→            <img
+  1544→              src={imageViewerSrc}
+  1545→              alt="Payment proof full size"
+  1546→              className="w-full rounded-lg object-contain"
+  1547→            />
+  1548→          )}
+  1549→        </DialogContent>
+  1550→      </Dialog>
+  1551→    </div>
+  1552→  );
+  1553→}
+  1554→
