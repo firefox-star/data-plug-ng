@@ -99,6 +99,13 @@ interface Plan {
   };
 }
 
+interface AdminNetwork {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+}
+
 interface SiteSettings {
   siteName: string;
   siteDescription: string;
@@ -180,6 +187,7 @@ export function AdminPanel({ onClose, adminPassword }: AdminPanelProps) {
   const [balanceAdjustment, setBalanceAdjustment] = useState('');
   const [userUpdating, setUserUpdating] = useState(false);
 
+  const [adminNetworks, setAdminNetworks] = useState<AdminNetwork[]>([]);
   const [editPlanOpen, setEditPlanOpen] = useState(false);
   const [addPlanOpen, setAddPlanOpen] = useState(false);
   const [planForm, setPlanForm] = useState({
@@ -291,6 +299,12 @@ export function AdminPanel({ onClose, adminPassword }: AdminPanelProps) {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useEffect(() => {
+    fetchJSON('/api/admin/networks')
+      .then((d) => setAdminNetworks(Array.isArray(d?.networks) ? d.networks : []))
+      .catch(() => {});
+  }, [fetchJSON]);
 
   useEffect(() => {
     if (activeTab === 'deposits') fetchDeposits(depositFilter);
@@ -1451,10 +1465,14 @@ export function AdminPanel({ onClose, adminPassword }: AdminPanelProps) {
                   <SelectValue placeholder="Select network" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="mtn">MTN</SelectItem>
-                  <SelectItem value="airtel">Airtel</SelectItem>
-                  <SelectItem value="glo">Glo</SelectItem>
-                  <SelectItem value="9mobile">9Mobile</SelectItem>
+                  {adminNetworks.map((net) => (
+                    <SelectItem key={net.id} value={net.id}>
+                      <div className="flex items-center gap-2">
+                        <NetworkIcon slug={net.slug} name={net.name} size={20} />
+                        {net.name}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
