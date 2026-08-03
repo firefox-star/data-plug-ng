@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String   @unique
+  password      String
+  balance       Float    @default(0)
+  active        Boolean  @default(true)
+  referralCode  String   @unique @default("")
+  referredBy    String   @default("")
+  referralCount Int      @default(0)
+  referralReward Float   @default(0)
+  whatsappShareCount Int @default(0)
+  referralCompleted Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+  deposits      Deposit[]
+  notifications Notification[]
+  referrals     Referral[]
+  referred      Referral[] @relation("ReferredUser")
+}
+
+model Network {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  color     String     @default("#000000")
+  icon      String     @default("")
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  plans     DataPlan[]
+  orders    Order[]
+}
+
+model DataPlan {
+  id        String   @id @default(cuid())
+  networkId String
+  name      String
+  size      Float
+  price     Float
+  validity  String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  network   Network  @relation(fields: [networkId], references: [id])
+  orders    Order[]
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  userId    String
+  phone     String
+  networkId String
+  planId    String
+  amount    Float
+  status    String   @default("processing")
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  network   Network  @relation(fields: [networkId], references: [id])
+  plan      DataPlan @relation(fields: [planId], references: [id])
+}
+
+model Deposit {
+  id            String   @id @default(cuid())
+  userId        String
+  amount        Float
+  status        String   @default("pending")
+  paymentProof  String   @default("")
+  adminNotes    String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model Referral {
+  id             String   @id @default(cuid())
+  referrerId     String
+  referredId     String   @unique
+  rewardGranted   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  referrer       User     @relation(fields: [referrerId], references: [id])
+  referred       User     @relation("ReferredUser", fields: [referredId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
