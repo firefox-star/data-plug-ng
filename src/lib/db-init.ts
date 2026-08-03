@@ -163,6 +163,11 @@ export async function initDatabase(db: PrismaClient): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
+    // Ensure db directory exists (SQLite needs parent dir before creating file)
+    const dbDir = path.join(process.cwd(), 'db');
+    if (!fs.existsSync(dbDir)) {
+      try { fs.mkdirSync(dbDir, { recursive: true }); } catch {}
+    }
     const uploadsDir = path.join(process.cwd(), 'uploads', 'payment_proofs');
     if (!fs.existsSync(uploadsDir)) {
       try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch {}
